@@ -1,0 +1,125 @@
+#!/usr/bin/make -f
+
+SHELL := sh -e
+DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH)
+DEB_BUILD_ARCH := $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+SOURCE := $(shell dpkg-parsechangelog | sed -ne 's,^Source: *\(.*\)$$,\1,p')
+VERSION_DEBIAN := $(shell dpkg-parsechangelog | sed -ne 's,^Version: *\(.*\)$$,\1,p')
+VERSION := $(shell echo "$(VERSION_DEBIAN)" | sed -e 's,^[^:]*:,,' -e 's,-[^-]*$$,,')
+ 
+BUILD_DIR = debian/build
+STAMPS_DIR = debian/stamps
+
+source: $(STAMPS_DIR)/source
+
+$(STAMPS_DIR)/source: SOURCE_FILES = $(filter-out debian, $(wildcard * .[^.]*))
+$(STAMPS_DIR)/source: DIR = $(BUILD_DIR)/source
+$(STAMPS_DIR)/source:
+	dh_testdir
+	rm -rf '$(DIR)'
+	mkdir -p $(STAMPS_DIR) '$(DIR)'
+	cp -al $(SOURCE_FILES) '$(DIR)'
+	cd $(DIR); QUILT_PATCHES=$(CURDIR)/debian/patches quilt --quiltrc /dev/null push -a || test $$? = 2
+	touch $@
+
+setup: $(STAMPS_DIR)/setup_deb $(STAMPS_DIR)/setup_udeb
+
+$(STAMPS_DIR)/setup_%: SOURCE_DIR=$(BUILD_DIR)/source
+$(STAMPS_DIR)/setup_%: DIR=$(BUILD_DIR)/build_$*
+$(STAMPS_DIR)/setup_%: $(STAMPS_DIR)/source
+	dh_testdir
+	rm -rf '$(DIR)'
+	cp -al '$(SOURCE_DIR)' '$(DIR)'
+	cp debian/config/config.$* '$(DIR)'/.config
+	make -C '$(DIR)' oldconfig
+	touch $@
+
+build: $(STAMPS_DIR)/build_deb $(STAMPS_DIR)/build_static $(STAMPS_DIR)/build_udeb
+
+$(STAMPS_DIR)/build_%: DIR=$(BUILD_DIR)/build_$*
+$(STAMPS_DIR)/build_%: $(STAMPS_DIR)/setup_%
+	dh_testdir
+	make -C '$(DIR)' busybox docs/busybox.1 BB_EXTRA_VERSION="$(shell lsb_release -is) $(VERSION_DEBIAN)"
+	touch $@
+
+$(BUILD_DIR) $(STAMPS_DIR):
+	@[ -d $@ ] || mkdir $@
+
+maintainerclean:
+	rm -rf $(filter-out .svn debian, $(wildcard * .[^.]*))
+
+clean:
+	dh_testdir
+	rm -rf $(BUILD_DIR) $(STAMPS_DIR)
+	dh_clean
+
+binary-indep:
+
+binary-arch: binary-arch_deb binary-arch_static binary-arch_udeb
+
+binary-arch_deb: DIR = $(BUILD_DIR)/build_deb
+binary-arch_deb: export DH_OPTIONS = -pbusybox
+binary-arch_deb: $(STAMPS_DIR)/build_deb
+	dh_testdir
+	dh_testroot
+	dh_clean -k -d
+	dh_install --sourcedir=$(DIR)
+	$(MAKE) -f debian/rules binary-arch_all
+
+binary-arch_static: PACKAGE = busybox-static
+binary-arch_static: DIR = $(BUILD_DIR)/build_static
+binary-arch_static: export DH_OPTIONS = -p$(PACKAGE)
+binary-arch_static: $(STAMPS_DIR)/build_static
+	dh_testdir
+	dh_testroot
+	dh_clean -k -d
+	dh_install --sourcedir=$(DIR)
+	install -D -m644 debian/$(PACKAGE).override \
+		debian/$(PACKAGE)/usr/share/lintian/overrides/$(PACKAGE)
+	$(MAKE) -f debian/rules binary-arch_all
+
+binary-arch_udeb: PACKAGE = busybox-udeb
+binary-arch_udeb: DIR = $(BUILD_DIR)/build_udeb
+binary-arch_udeb: OUT_DIR = $(CURDIR)/debian/$(PACKAGE)
+binary-arch_udeb: export DH_OPTIONS = -p$(PACKAGE)
+binary-arch_udeb: $(STAMPS_DIR)/build_udeb
+	dh_testdir
+	dh_testroot
+	dh_clean -k -d
+	make -C $(DIR) install CONFIG_PREFIX=$(OUT_DIR)
+	# Remove init link, but init support is still compiled in to be
+	# used.
+	rm -f $(OUT_DIR)/sbin/init
+	$(MAKE) -f debian/rules binary-arch_all
+
+binary-arch_all:
+	dh_installdirs
+	dh_installdocs
+	dh_installchangelogs
+	dh_strip
+	dh_link
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+
+DIR_ORIG = ../orig/$(SOURCE)-$(VERSION)
+TAR_ORIG_NAME = $(SOURCE)_$(VERSION).orig.tar.gz
+TAR_ORIG = $(firstword $(wildcard ../$(TAR_ORIG_NAME)) $(wildcard ../orig/$(TAR_ORIG_NAME)))
+
+orig: $(DIR_ORIG)
+	rsync --delete --exclude debian --exclude .svk --exclude .svn --link-dest=$(DIR_ORIG)/ -a $(DIR_ORIG)/ .
+
+$(DIR_ORIG):
+ifeq ($(TAR_ORIG),)
+	$(error Cannot find orig tarball $(TAR_ORIG_NAME))
+else
+	mkdir -p ../orig
+	tar -C ../orig -xzf $(TAR_ORIG)
+endif
+

@@ -1,0 +1,372 @@
+--- busybox.orig/scripts/defconfig
++++ busybox/scripts/defconfig
+@@ -27,8 +27,8 @@
+ CONFIG_FEATURE_SUID_CONFIG=y
+ CONFIG_FEATURE_SUID_CONFIG_QUIET=y
+ # CONFIG_SELINUX is not set
+-# CONFIG_FEATURE_PREFER_APPLETS is not set
+-CONFIG_BUSYBOX_EXEC_PATH="/proc/self/exe"
++# CONFIG_FEATURE_APPLETS_FALLBACK is not set
++CONFIG_BUSYBOX_EXEC_PATH="/bin/busybox"
+ CONFIG_FEATURE_SYSLOG=y
+ CONFIG_FEATURE_HAVE_RPC=y
+ 
+--- busybox.orig/shell/Config.in
++++ busybox/shell/Config.in
+@@ -261,35 +261,7 @@
+ config FEATURE_SH_STANDALONE
+ 	bool "Standalone shell"
+ 	default n
+-	depends on (MSH || LASH || HUSH || ASH) && FEATURE_PREFER_APPLETS
+-	help
+-	  This option causes busybox shells to use busybox applets
+-	  in preference to executables in the PATH whenever possible.  For
+-	  example, entering the command 'ifconfig' into the shell would cause
+-	  busybox to use the ifconfig busybox applet.  Specifying the fully
+-	  qualified executable name, such as '/sbin/ifconfig' will still
+-	  execute the /sbin/ifconfig executable on the filesystem.  This option
+-	  is generally used when creating a statically linked version of busybox
+-	  for use as a rescue shell, in the event that you screw up your system.
+-
+-	  This is implemented by re-execing /proc/self/exe (typically)
+-	  with right parameters. Some selected applets ("NOFORK" applets)
+-	  can even be executed without creating new process.
+-	  Instead, busybox will call <applet>_main() internally.
+-
+-	  However, this causes problems in chroot jails without mounted /proc
+-	  and with ps/top (command name can be shown as 'exe' for applets
+-	  started this way).
+-# untrue?
+-#	  Note that this will *also* cause applets to take precedence
+-#	  over shell builtins of the same name.  So turning this on will
+-#	  eliminate any performance gained by turning on the builtin "echo"
+-#	  and "test" commands in ash.
+-# untrue?
+-#	  Note that when using this option, the shell will attempt to directly
+-#	  run '/bin/busybox'.  If you do not have the busybox binary sitting in
+-#	  that exact location with that exact name, this option will not work at
+-#	  all.
++	depends on (MSH || LASH || HUSH || ASH) && FEATURE_APPLETS_FALLBACK
+ 
+ config CTTYHACK
+ 	bool "cttyhack"
+--- busybox.orig/shell/ash.c
++++ busybox/shell/ash.c
+@@ -6568,20 +6568,6 @@
+ {
+ 	int repeated = 0;
+ 
+-#if ENABLE_FEATURE_SH_STANDALONE
+-	if (strchr(cmd, '/') == NULL) {
+-		int a = find_applet_by_name(cmd);
+-		if (a >= 0) {
+-			if (APPLET_IS_NOEXEC(a))
+-				run_applet_no_and_exit(a, argv);
+-			/* re-exec ourselves with the new arguments */
+-			execve(bb_busybox_exec_path, argv, envp);
+-			/* If they called chroot or otherwise made the binary no longer
+-			 * executable, fall through */
+-		}
+-	}
+-#endif
+-
+  repeat:
+ #ifdef SYSV
+ 	do {
+@@ -6626,11 +6612,7 @@
+ 
+ 	clearredir(1);
+ 	envp = environment();
+-	if (strchr(argv[0], '/')
+-#if ENABLE_FEATURE_SH_STANDALONE
+-	 || find_applet_by_name(argv[0]) >= 0
+-#endif
+-	) {
++	if (strchr(argv[0], '/')) {
+ 		tryexec(argv[0], argv, envp);
+ 		e = errno;
+ 	} else {
+@@ -6645,6 +6627,11 @@
+ 		}
+ 	}
+ 
++#if ENABLE_FEATURE_SH_STANDALONE
++	if (e == ENOENT)
++		bb_execv_applet(argv[0], argv, envp);
++#endif
++
+ 	/* Map to POSIX errors */
+ 	switch (e) {
+ 	case EACCES:
+--- busybox.orig/libbb/vfork_daemon_rexec.c
++++ busybox/libbb/vfork_daemon_rexec.c
+@@ -100,7 +100,7 @@
+ 	return r;
+ }
+ 
+-#if ENABLE_FEATURE_PREFER_APPLETS
++#if ENABLE_FEATURE_APPLETS_FALLBACK
+ void save_nofork_data(struct nofork_save_area *save)
+ {
+ 	memcpy(&save->die_jmp, &die_jmp, sizeof(die_jmp));
+@@ -168,7 +168,7 @@
+ int spawn_and_wait(char **argv)
+ {
+ 	int rc;
+-#if ENABLE_FEATURE_PREFER_APPLETS
++#if ENABLE_FEATURE_APPLETS_FALLBACK
+ 	int a = find_applet_by_name(argv[0]);
+ 
+ 	if (a >= 0 && (APPLET_IS_NOFORK(a)
+--- busybox.orig/libbb/execable.c
++++ busybox/libbb/execable.c
+@@ -9,6 +9,9 @@
+ 
+ #include "libbb.h"
+ 
++#include <alloca.h>
++#include <stdarg.h>
++
+ /* check if path points to an executable file;
+  * return 1 if found;
+  * return 0 otherwise;
+@@ -60,12 +63,60 @@
+ 	return 0;
+ }
+ 
+-#if ENABLE_FEATURE_PREFER_APPLETS
+-/* just like the real execvp, but try to launch an applet named 'file' first
++#if ENABLE_FEATURE_APPLETS_FALLBACK
++int bb_execv_applet(const char *name, char *const argv[], char *const envp[])
++{
++	const char **path = bb_busybox_exec_paths;
++
++	errno = ENOENT;
++
++	if (find_applet_by_name(name) < 0)
++		return -1;
++
++	for (; *path; ++path)
++		execve(*path, argv, envp);
++
++	return -1;
++}
++
++/* just like the real execvp, but try to launch applet if exec failes
+  */
+ int bb_execvp(const char *file, char *const argv[])
+ {
+-	return execvp(find_applet_by_name(file) >= 0 ? bb_busybox_exec_path : file,
+-					argv);
++	int ret = execvp(file, argv);
++	if (errno != ENOENT)
++		return ret;
++
++	return bb_execv_applet(file, argv, environ);
++}
++
++int bb_execlp(const char *file, const char *arg, ...)
++{
++#define INITIAL_ARGV_MAX 16
++	size_t argv_max = INITIAL_ARGV_MAX;
++	const char **argv = malloc(argv_max * sizeof (const char *));
++	va_list args;
++	unsigned int i = 0;
++	int ret;
++
++	va_start (args, arg);
++	while (argv[i++] != NULL) {
++		if (i == argv_max) { 
++			const char **nptr;
++			argv_max *= 2;
++			nptr = realloc (argv, argv_max * sizeof (const char *));
++			if (nptr == NULL)
++				return -1;
++			argv = nptr;
++		}
++
++		argv[i] = va_arg (args, const char *);
++	}
++	va_end (args);
++
++	ret = bb_execvp(file, (char *const *)argv);
++	free(argv);
++
++	return ret;
+ }
+ #endif
+--- busybox.orig/libbb/error_msg_and_die.c
++++ busybox/libbb/error_msg_and_die.c
+@@ -10,14 +10,14 @@
+ #include "libbb.h"
+ 
+ int die_sleep;
+-#if ENABLE_FEATURE_PREFER_APPLETS || ENABLE_HUSH
++#if ENABLE_FEATURE_APPLETS_FALLBACK || ENABLE_HUSH
+ jmp_buf die_jmp;
+ #endif
+ 
+ void xfunc_die(void)
+ {
+ 	if (die_sleep) {
+-		if ((ENABLE_FEATURE_PREFER_APPLETS || ENABLE_HUSH)
++		if ((ENABLE_FEATURE_APPLETS_FALLBACK || ENABLE_HUSH)
+ 		 && die_sleep < 0
+ 		) {
+ 			/* Special case. We arrive here if NOFORK applet
+--- busybox.orig/libbb/fflush_stdout_and_exit.c
++++ busybox/libbb/fflush_stdout_and_exit.c
+@@ -18,7 +18,7 @@
+ 	if (fflush(stdout))
+ 		bb_perror_msg_and_die(bb_msg_standard_output);
+ 
+-	if (ENABLE_FEATURE_PREFER_APPLETS && die_sleep < 0) {
++	if (ENABLE_FEATURE_APPLETS_FALLBACK && die_sleep < 0) {
+ 		/* We are in NOFORK applet. Do not exit() directly,
+ 		 * but use xfunc_die() */
+ 		xfunc_error_retval = retval;
+--- busybox.orig/libbb/messages.c
++++ busybox/libbb/messages.c
+@@ -43,7 +43,15 @@
+ const char bb_path_gshadow_file[] ALIGN1 = "/etc/gshadow";
+ const char bb_path_motd_file[] ALIGN1 = "/etc/motd";
+ const char bb_dev_null[] ALIGN1 = "/dev/null";
+-const char bb_busybox_exec_path[] ALIGN1 = CONFIG_BUSYBOX_EXEC_PATH;
++const char *bb_busybox_exec_paths[] ALIGN1 = {
++#ifdef __linux__
++	"/proc/self/exe",
++#endif
++#ifdef CONFIG_BUSYBOX_EXEC_PATH
++	CONFIG_BUSYBOX_EXEC_PATH,
++#endif
++	NULL
++};
+ const char bb_default_login_shell[] ALIGN1 = LIBBB_DEFAULT_LOGIN_SHELL;
+ /* util-linux manpage says /sbin:/bin:/usr/sbin:/usr/bin,
+  * but I want to save a few bytes here. Check libbb.h before changing! */
+--- busybox.orig/libbb/appletlib.c
++++ busybox/libbb/appletlib.c
+@@ -604,9 +604,9 @@
+ 
+ 	if (ENABLE_FEATURE_INSTALLER && strcmp(argv[1], "--install") == 0) {
+ 		const char *busybox;
+-		busybox = xmalloc_readlink(bb_busybox_exec_path);
++		busybox = xmalloc_readlink(bb_busybox_exec_paths[0]);
+ 		if (!busybox)
+-			busybox = bb_busybox_exec_path;
++			busybox = bb_busybox_exec_paths[0];
+ 		/* -s makes symlinks */
+ 		install_links(busybox, argv[2] && strcmp(argv[2], "-s") == 0);
+ 		return 0;
+--- busybox.orig/include/libbb.h
++++ busybox/include/libbb.h
+@@ -557,12 +557,12 @@
+ /* BB_EXECxx always execs (it's not doing NOFORK/NOEXEC stuff),
+  * but it may exec busybox and call applet instead of searching PATH.
+  */
+-#if ENABLE_FEATURE_PREFER_APPLETS
++#if ENABLE_FEATURE_APPLETS_FALLBACK
++int bb_execv_applet(const char *name, char *const argv[], char *const envp[]);
+ int bb_execvp(const char *file, char *const argv[]);
+-#define BB_EXECVP(prog,cmd) bb_execvp(prog,cmd)
+-#define BB_EXECLP(prog,cmd,...) \
+-	execlp((find_applet_by_name(prog) >= 0) ? CONFIG_BUSYBOX_EXEC_PATH : prog, \
+-		cmd, __VA_ARGS__)
++int bb_execlp(const char *file, const char *arg, ...);
++#define BB_EXECVP(prog,cmd)     bb_execvp(prog,cmd)
++#define BB_EXECLP(prog,cmd,...) bb_execlp(prog,cmd, __VA_ARGS__)
+ #else
+ #define BB_EXECVP(prog,cmd)     execvp(prog,cmd)
+ #define BB_EXECLP(prog,cmd,...) execlp(prog,cmd, __VA_ARGS__)
+@@ -1114,7 +1114,7 @@
+ extern const char bb_path_motd_file[];
+ extern const char bb_path_wtmp_file[];
+ extern const char bb_dev_null[];
+-extern const char bb_busybox_exec_path[];
++extern const char *bb_busybox_exec_paths[];
+ /* util-linux manpage says /sbin:/bin:/usr/sbin:/usr/bin,
+  * but I want to save a few bytes here */
+ extern const char bb_PATH_root_path[]; /* "PATH=/sbin:/usr/sbin:/bin:/usr/bin" */
+--- busybox.orig/include/busybox.h
++++ busybox/include/busybox.h
+@@ -32,13 +32,13 @@
+ extern const uint16_t applet_nameofs[];
+ extern const uint8_t applet_install_loc[];
+ 
+-#if ENABLE_FEATURE_SUID || ENABLE_FEATURE_PREFER_APPLETS
++#if ENABLE_FEATURE_SUID || ENABLE_FEATURE_APPLETS_FALLBACK
+ #define APPLET_NAME(i) (applet_names + (applet_nameofs[i] & 0x0fff))
+ #else
+ #define APPLET_NAME(i) (applet_names + applet_nameofs[i])
+ #endif
+ 
+-#if ENABLE_FEATURE_PREFER_APPLETS
++#if ENABLE_FEATURE_APPLETS_FALLBACK
+ #define APPLET_IS_NOFORK(i) (applet_nameofs[i] & (1 << 12))
+ #define APPLET_IS_NOEXEC(i) (applet_nameofs[i] & (1 << 13))
+ #endif
+--- busybox.orig/applets/applet_tables.c
++++ busybox/applets/applet_tables.c
+@@ -87,7 +87,7 @@
+ 	for (i = 0; i < NUM_APPLETS; i++) {
+ 		printf("0x%04x,\n",
+ 			offset[i]
+-#if ENABLE_FEATURE_PREFER_APPLETS
++#if ENABLE_FEATURE_APPLETS_FALLBACK
+ 			+ (applets[i].nofork << 12)
+ 			+ (applets[i].noexec << 13)
+ #endif
+--- busybox.orig/Config.in
++++ busybox/Config.in
+@@ -222,29 +222,16 @@
+ 
+ 	  Most people will leave this set to 'N'.
+ 
+-config FEATURE_PREFER_APPLETS
+-	bool "exec prefers applets"
++config FEATURE_APPLETS_FALLBACK
++	bool "exec uses applets as fallback"
+ 	default n
+-	help
+-	  This is an experimental option which directs applets about to
+-	  call 'exec' to try and find an applicable busybox applet before
+-	  searching the PATH. This is typically done by exec'ing
+-	  /proc/self/exe.
+-	  This may affect shell, find -exec, xargs and similar applets.
+-	  They will use applets even if /bin/<applet> -> busybox link
+-	  is missing (or is not a link to busybox). However, this causes
+-	  problems in chroot jails without mounted /proc and with ps/top
+-	  (command name can be shown as 'exe' for applets started this way).
+ 
+ config BUSYBOX_EXEC_PATH
+ 	string "Path to BusyBox executable"
+-	default "/proc/self/exe"
++	default "/bin/busybox"
+ 	help
+ 	  When Busybox applets need to run other busybox applets, BusyBox
+-	  sometimes needs to exec() itself.  When the /proc filesystem is
+-	  mounted, /proc/self/exe always points to the currently running
+-	  executable.  If you haven't got /proc, set this to wherever you
+-	  want to run BusyBox from.
++	  sometimes needs to exec() itself.
+ 
+ # These are auto-selected by other options
+ 
+@@ -283,7 +270,7 @@
+ config BUILD_LIBBUSYBOX
+ 	bool "Build shared libbusybox"
+ 	default n
+-	depends on !FEATURE_PREFER_APPLETS
++	depends on !FEATURE_APPLETS_FALLBACK
+ 	help
+ 	  Build a shared library libbusybox.so.N.N.N which contains all
+ 	  busybox code.
+@@ -492,7 +479,7 @@
+ 
+ config INSTALL_APPLET_DONT
+ 	bool "not installed"
+-	depends on FEATURE_INSTALLER || FEATURE_SH_STANDALONE || FEATURE_PREFER_APPLETS
++	depends on FEATURE_INSTALLER || FEATURE_SH_STANDALONE || FEATURE_APPLETS_FALLBACK
+ 	help
+ 	  Do not install applet links. Useful when using the -install feature
+ 	  or a standalone shell for rescue purposes.

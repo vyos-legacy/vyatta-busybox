@@ -1,0 +1,24 @@
+--- busybox.orig/Makefile.custom
++++ busybox/Makefile.custom
+@@ -98,7 +98,7 @@
+ 
+ # Documentation Targets
+ .PHONY: doc
+-doc: docs/busybox.pod docs/BusyBox.txt docs/BusyBox.1 docs/BusyBox.html
++doc: docs/busybox.pod docs/BusyBox.txt docs/busybox.1 docs/BusyBox.html
+ 
+ docs/busybox.pod: $(srctree)/docs/busybox_header.pod \
+ 		$(srctree)/include/usage.h \
+@@ -115,10 +115,10 @@
+ 	$(Q)-mkdir -p docs
+ 	$(Q)-pod2text $< > $@
+ 
+-docs/BusyBox.1: docs/busybox.pod
++docs/busybox.1: docs/busybox.pod
+ 	$(disp_doc)
+ 	$(Q)-mkdir -p docs
+-	$(Q)-pod2man --center=BusyBox --release="version $(VERSION)" \
++	$(Q)-pod2man --center=busybox --release="version $(VERSION)" \
+ 		$< > $@
+ 
+ docs/BusyBox.html: docs/busybox.net/BusyBox.html
