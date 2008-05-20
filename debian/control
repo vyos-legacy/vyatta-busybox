@@ -1,4 +1,4 @@
-Source: busybox
+Source: vyatta-busybox
 Priority: optional
 Section: utils
 Maintainer: Debian Install System Team <debian-boot@lists.debian.org>
@@ -6,11 +6,11 @@ Uploaders: Bastian Blank <waldi@debian.org>
 Build-Depends: debhelper (>> 5), lsb-release, quilt
 Standards-Version: 3.7.3
 
-Package: busybox
+Package: vyatta-busybox
 Architecture: any
 Depends: ${shlibs:Depends}
 Conflicts: busybox-static
-Replaces: busybox-static
+Replaces: busybox-static, busybox
 Description: Tiny utilities for small and embedded systems
  BusyBox combines tiny versions of many common UNIX utilities into a single
  small executable. It provides minimalist replacements for the most common
@@ -25,7 +25,7 @@ Description: Tiny utilities for small and embedded systems
  to install BusyBox to the current directory (you do not want to do this
  in / on your Debian system!).
 
-Package: busybox-static
+Package: vyatta-busybox-static
 Architecture: any
 Depends: ${shlibs:Depends}
 Conflicts: busybox
@@ -48,7 +48,7 @@ Description: Standalone rescue shell with tons of builtin utilities
  your system from certain destruction. Invoke "busybox", and it will list the
  available builtin commands.
 
-Package: busybox-udeb
+Package: vyatta-busybox-udeb
 XC-Package-Type: udeb
 Architecture: any
 Depends: ${shlibs:Depends}
@@ -66,4 +66,3 @@ Description: Tiny utilities for the debian-installer
  busybox-cvs-udeb is used by the debian-installer, so unless you are working on
  the debian-installer, this package is not for you. Installing this 
  on your Debian system is a very, very bad idea. You have been warned.
-
