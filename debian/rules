@@ -22,7 +22,7 @@ $(STAMPS_DIR)/source:
 	cd $(DIR); QUILT_PATCHES=$(CURDIR)/debian/patches quilt --quiltrc /dev/null push -a || test $$? = 2
 	touch $@
 
-setup: $(STAMPS_DIR)/setup_deb $(STAMPS_DIR)/setup_udeb
+setup: $(STAMPS_DIR)/setup_deb
 
 $(STAMPS_DIR)/setup_%: SOURCE_DIR=$(BUILD_DIR)/source
 $(STAMPS_DIR)/setup_%: DIR=$(BUILD_DIR)/build_$*
@@ -34,7 +34,7 @@ $(STAMPS_DIR)/setup_%: $(STAMPS_DIR)/source
 	make -C '$(DIR)' oldconfig
 	touch $@
 
-build: $(STAMPS_DIR)/build_deb $(STAMPS_DIR)/build_static $(STAMPS_DIR)/build_udeb
+build: $(STAMPS_DIR)/build_deb
 
 $(STAMPS_DIR)/build_%: DIR=$(BUILD_DIR)/build_$*
 $(STAMPS_DIR)/build_%: $(STAMPS_DIR)/setup_%
@@ -55,10 +55,10 @@ clean:
 
 binary-indep:
 
-binary-arch: binary-arch_deb binary-arch_static binary-arch_udeb
+binary-arch: binary-arch_deb
 
 binary-arch_deb: DIR = $(BUILD_DIR)/build_deb
-binary-arch_deb: export DH_OPTIONS = -pbusybox
+binary-arch_deb: export DH_OPTIONS = -pvyatta-busybox
 binary-arch_deb: $(STAMPS_DIR)/build_deb
 	dh_testdir
 	dh_testroot
@@ -66,7 +66,7 @@ binary-arch_deb: $(STAMPS_DIR)/build_deb
 	dh_install --sourcedir=$(DIR)
 	$(MAKE) -f debian/rules binary-arch_all
 
-binary-arch_static: PACKAGE = busybox-static
+binary-arch_static: PACKAGE = vyatta-busybox-static
 binary-arch_static: DIR = $(BUILD_DIR)/build_static
 binary-arch_static: export DH_OPTIONS = -p$(PACKAGE)
 binary-arch_static: $(STAMPS_DIR)/build_static
@@ -78,7 +78,7 @@ binary-arch_static: $(STAMPS_DIR)/build_static
 		debian/$(PACKAGE)/usr/share/lintian/overrides/$(PACKAGE)
 	$(MAKE) -f debian/rules binary-arch_all
 
-binary-arch_udeb: PACKAGE = busybox-udeb
+binary-arch_udeb: PACKAGE = vyatta-busybox-udeb
 binary-arch_udeb: DIR = $(BUILD_DIR)/build_udeb
 binary-arch_udeb: OUT_DIR = $(CURDIR)/debian/$(PACKAGE)
 binary-arch_udeb: export DH_OPTIONS = -p$(PACKAGE)

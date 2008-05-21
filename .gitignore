@@ -1,0 +1,8 @@
+debian/build
+debian/busybox.debhelper.log
+debian/files
+debian/stamps
+debian/vyatta-busybox-static.debhelper.log
+debian/vyatta-busybox-udeb.debhelper.log
+debian/vyatta-busybox.debhelper.log
+debian/vyatta-busybox
