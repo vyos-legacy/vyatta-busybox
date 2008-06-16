@@ -1,4 +1,4 @@
-vyatta-busybox (1:1.9.2-3+vyatta+1) unstable; urgency=low
+vyatta-busybox (1.9.2-3+vyatta+1) unstable; urgency=low
 
   * Fork busybox
 
