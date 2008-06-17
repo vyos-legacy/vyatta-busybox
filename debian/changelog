@@ -1,3 +1,22 @@
+vyatta-busybox (1.9.2-3+vyatta+2) unstable; urgency=low
+
+	  3.1.0
+  [ Mark O'Brien ]
+
+
+  [ Rick Balocca ]
+  * Update version #
+
+  [ rbalocca ]
+  * Configure telnet login
+  * Changes to vyatta-busybox for correct package installation
+  * Fork busybox
+  * Add telnetd back into busybox
+
+  [ Mark O'Brien ]
+
+ -- Mark O'Brien <mobrien@firebolt.vyatta.com>  Tue, 17 Jun 2008 09:25:55 -0700
+
 vyatta-busybox (1.9.2-3+vyatta+1) unstable; urgency=low
 
   * Fork busybox
