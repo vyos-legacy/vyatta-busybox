@@ -1,3 +1,11 @@
+vyatta-busybox (1.9.2-3+vyatta+3) unstable; urgency=low
+
+	  3.1.3
+
+  * 3.1.2
+
+ -- Mark O'Brien <mobrien@firebolt.vyatta.com>  Tue, 19 Aug 2008 17:48:22 -0700
+
 vyatta-busybox (1.9.2-3+vyatta+2) unstable; urgency=low
 
 	  3.1.0
