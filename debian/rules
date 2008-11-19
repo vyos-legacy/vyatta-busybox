@@ -102,7 +102,11 @@ binary-arch_all:
 	dh_fixperms
 	dh_installdeb
 	dh_shlibdeps
-	dh_gencontrol
+	if [ -f "../.VYATTA_DEV_BUILD" ]; then \
+		dh_gencontrol -- -v999.dev; \
+	else \
+		dh_gencontrol; \
+	fi
 	dh_md5sums
 	dh_builddeb
 
