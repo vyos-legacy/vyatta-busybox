@@ -54,6 +54,7 @@ clean:
 	dh_clean
 
 binary-indep:
+	rm -f debian/files
 
 binary-arch: binary-arch_deb
 
