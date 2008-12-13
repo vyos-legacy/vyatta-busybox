@@ -1,8 +1,7 @@
 Source: vyatta-busybox
 Priority: optional
 Section: utils
-Maintainer: Debian Install System Team <debian-boot@lists.debian.org>
-Uploaders: Bastian Blank <waldi@debian.org>
+Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
 Build-Depends: debhelper (>> 5), lsb-release, quilt
 Standards-Version: 3.7.3
 
