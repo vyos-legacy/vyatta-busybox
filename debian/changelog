@@ -1,3 +1,11 @@
+vyatta-busybox (1.9.2-3+vyatta+5) unstable; urgency=low
+
+  * add support for development build
+  * update maintainer information
+  * "files" file should be removed before package build
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Wed, 07 Jan 2009 19:22:34 -0800
+
 vyatta-busybox (1.9.2-3+vyatta+4) unstable; urgency=low
 
 	  3.2.0
