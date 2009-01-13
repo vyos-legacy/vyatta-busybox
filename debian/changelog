@@ -1,3 +1,9 @@
+vyatta-busybox (1.9.2-3+vyatta+4+islavista1) unstable; urgency=low
+
+  * UNRELEASED
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Mon, 12 Jan 2009 16:30:21 -0800
+
 vyatta-busybox (1.9.2-3+vyatta+4) unstable; urgency=low
 
 	  3.2.0
