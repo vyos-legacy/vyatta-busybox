@@ -206,11 +206,14 @@ make_new_session(
 		USE_FEATURE_TELNETD_STANDALONE(int sock)
 		SKIP_FEATURE_TELNETD_STANDALONE(void)
 ) {
-	const char *login_argv[2];
+	const char *login_argv[4];
 	struct termios termbuf;
 	int fd, pid;
 	char tty_name[32];
 	struct tsession *ts = xzalloc(sizeof(struct tsession) + BUFSIZE * 2);
+	len_and_sockaddr fromAddr;
+	const char *host;
+	char buf[51];
 
 	/*ts->buf1 = (char *)(ts + 1);*/
 	/*ts->buf2 = ts->buf1 + BUFSIZE;*/
@@ -241,6 +244,23 @@ make_new_session(
 	ndelay_on(0);
 	ndelay_on(1);
 #endif
+	/* Find out address of remote (handle IPV6 as well). */
+	fromAddr.len = LSA_SIZEOF_SA;
+	if (getpeername(ts->sockfd_read, &fromAddr.sa, &fromAddr.len) < 0) {
+		free(ts);
+		close(fd);
+		bb_error_msg("can't get peer");
+		return NULL;
+	}
+#if ENABLE_FEATURE_IPV6
+	if (fromAddr.sa.sa_family == AF_INET6)
+		host = inet_ntop(AF_INET6, &fromAddr.sin6.sin6_addr,
+				 buf, sizeof(buf));
+	else 
+#endif	
+		host = inet_ntop(AF_INET, &fromAddr.sin.sin_addr,
+				 buf, sizeof(buf));
+
 	/* Make the telnet client understand we will echo characters so it
 	 * should not do it locally. We don't tell the client to run linemode,
 	 * because we want to handle line editing and tab completion and other
@@ -311,9 +331,16 @@ make_new_session(
 	 * for vforked child to exec!) */
 	print_login_issue(issuefile, NULL);
 
+
 	/* Exec shell / login / whatever */
 	login_argv[0] = loginpath;
-	login_argv[1] = NULL;
+	login_argv[1] = "-h";
+	if (host) {
+		login_argv[2] = host;
+		login_argv[3] = NULL;
+	} else
+		login_argv[2] = NULL;
+
 	/* exec busybox applet (if PREFER_APPLETS=y), if that fails,
 	 * exec external program */
 	BB_EXECVP(loginpath, (char **)login_argv);
