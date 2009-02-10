@@ -1,3 +1,9 @@
+vyatta-busybox (1.9.2-3+vyatta+6) unstable; urgency=low
+
+  * telnetd: add support for passing hostname to login
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Mon, 09 Feb 2009 18:45:20 -0800
+
 vyatta-busybox (1.9.2-3+vyatta+5) unstable; urgency=low
 
   * add support for development build
