@@ -302,6 +302,7 @@ make_new_session(
 	/* Restore default signal handling */
 	signal(SIGCHLD, SIG_DFL);
 	signal(SIGPIPE, SIG_DFL);
+	signal(SIGTERM, SIG_DFL);
 
 	/* open the child's side of the tty. */
 	/* NB: setsid() disconnects from any previous ctty's. Therefore
