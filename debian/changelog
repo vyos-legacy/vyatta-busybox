@@ -1,3 +1,9 @@
+vyatta-busybox (1.9.2-3+vyatta+9) unstable; urgency=low
+
+  * Don't ignore SIGTERM
+
+ -- Stephen Hemminger <shemminger@debian.localdomain>  Tue, 16 Mar 2010 09:41:29 -0700
+
 vyatta-busybox (1.9.2-3+vyatta+8) unstable; urgency=low
 
   * UNRELEASED
