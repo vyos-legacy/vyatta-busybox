@@ -68,7 +68,7 @@ struct shm_info {
 union semun {
 	int val;
 	struct semid_ds *buf;
-	unsigned short int *array;
+	unsigned short *array;
 	struct seminfo *__buf;
 };
 #endif
@@ -115,7 +115,7 @@ static void print_perms(int id, struct ipc_perm *ipcp)
 }
 
 
-static void do_shm(void)
+static NOINLINE void do_shm(void)
 {
 	int maxid, shmid, id;
 	struct shmid_ds shmseg;
@@ -242,7 +242,7 @@ static void do_shm(void)
 }
 
 
-static void do_sem(void)
+static NOINLINE void do_sem(void)
 {
 	int maxid, semid, id;
 	struct semid_ds semary;
@@ -348,7 +348,7 @@ static void do_sem(void)
 }
 
 
-static void do_msg(void)
+static NOINLINE void do_msg(void)
 {
 	int maxid, msqid, id;
 	struct msqid_ds msgque;
@@ -559,7 +559,7 @@ static void print_sem(int semid)
 }
 
 int ipcs_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int ipcs_main(int argc, char **argv)
+int ipcs_main(int argc UNUSED_PARAM, char **argv)
 {
 	int id = 0;
 	unsigned flags = 0;
@@ -588,15 +588,15 @@ int ipcs_main(int argc, char **argv)
 	if (flags & flag_print) {
 		if (flags & flag_shm) {
 			print_shm(id);
-			fflush_stdout_and_exit(0);
+			fflush_stdout_and_exit(EXIT_SUCCESS);
 		}
 		if (flags & flag_sem) {
 			print_sem(id);
-			fflush_stdout_and_exit(0);
+			fflush_stdout_and_exit(EXIT_SUCCESS);
 		}
 		if (flags & flag_msg) {
 			print_msg(id);
-			fflush_stdout_and_exit(0);
+			fflush_stdout_and_exit(EXIT_SUCCESS);
 		}
 		bb_show_usage();
 	}
@@ -617,5 +617,5 @@ int ipcs_main(int argc, char **argv)
 		do_msg();
 		bb_putchar('\n');
 	}
-	fflush_stdout_and_exit(0);
+	fflush_stdout_and_exit(EXIT_SUCCESS);
 }

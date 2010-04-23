@@ -6,32 +6,18 @@ do one of these bounce an email off the person it's listed under to see if they
 have any suggestions how they plan to go about it, and to minimize conflicts
 between your work and theirs.  But otherwise, all of these are fair game.
 
-Rob Landley <rob@landley.net>:
-  Add BB_NOMMU to platform.h and migrate __uClinux__ tests to that.
-    #if defined __UCLIBC__ && !defined __ARCH_USE_MMU__
-  Add a libbb/platform.c
-    Implement fdprintf() for platforms that haven't got one.
-    Implement bb_realpath() that can handle NULL on non-glibc.
-    Cleanup bb_asprintf()
+Rob Landley suggested this:
+  Implement bb_realpath() that can handle NULL on non-glibc.
 
-  Migrate calloc() and bb_calloc() occurrences to bb_xzalloc().
   Remove obsolete _() wrapper crud for internationalization we don't do.
   Figure out where we need utf8 support, and add it.
 
   sh
-    The command shell situation is a big mess.  We have three or four different
+    The command shell situation is a mess.  We have two different
     shells that don't really share any code, and the "standalone shell" doesn't
     work all that well (especially not in a chroot environment), due to apps not
     being reentrant.
-    lash is phased out. hush can be configured down to be nearly as small,
-    but less buggy :)
-  init
-    General cleanup (should use ENABLE_FEATURE_INIT_SYSLOG and ENABLE_FEATURE_INIT_DEBUG).
-  depmod
-    busybox lacks a way to update module deps when running from firmware without the
-    use of the depmod.pl (perl is to bloated for most embedded setups) and or orig
-    modutils. The orig depmod is rather pointless to have to add to a firmware image
-    in when we already have a insmod/rmmod and friends.
+
   Do a SUSv3 audit
     Look at the full Single Unix Specification version 3 (available online at
     "http://www.opengroup.org/onlinepubs/009695399/nfindex.html") and
@@ -40,6 +26,7 @@ Rob Landley <rob@landley.net>:
 
     Even better would be some kind of automated compliance test harness that
     exercises each command line option and the various corner cases.
+
   Internationalization
     How much internationalization should we do?
 
@@ -107,15 +94,10 @@ Rob Landley <rob@landley.net>:
     This one's open to everybody, but I'll wind up doing it...
 
 
-Bernhard Fischer <busybox@busybox.net> suggests to look at these:
+Bernhard Reutner-Fischer <busybox@busybox.net> suggests to look at these:
   New debug options:
     -Wlarger-than-127
     Cleanup any big users
-    -Wunused-parameter
-    Facilitate applet PROTOTYPES to provide means for having applets that
-    do a) not take any arguments b) need only one of argc or argv c) need
-    both argc and argv. All of these three options should go for the most
-    feature complete denominator.
   Collate BUFSIZ IOBUF_SIZE MY_BUF_SIZE PIPE_PROGRESS_SIZE BUFSIZE PIPESIZE
     make bb_common_bufsiz1 configurable, size wise.
     make pipesize configurable, size wise.
@@ -123,9 +105,6 @@ Bernhard Fischer <busybox@busybox.net> suggests to look at these:
 
 As yet unclaimed:
 
-----
-find
-  doesn't understand (), lots of susv3 stuff.
 ----
 diff
   Make sure we handle empty files properly:
@@ -142,21 +121,6 @@ patch
 
   And while we're at it, a new patch filename quoting format is apparently
   coming soon:  http://marc.theaimsgroup.com/?l=git&m=112927316408690&w=2
----
-ps / top
-  Add support for both RSS and VSIZE rather than just one or the other.
-  Or make it a build option.
----
-man
-  It would be nice to have a man command.  Not one that handles troff or
-  anything, just one that can handle preformatted ascii man pages, possibly
-  compressed.  This could probably be a script in the extras directory that
-  calls cat/zcat/bzcat | less
-
-  (How doclifter might work into this is anybody's guess.)
----
-ar
-  Write support?
 ---
 stty / catv
   stty's visible() function and catv's guts are identical. Merge them into
@@ -198,8 +162,7 @@ Unify archivers
 ---
 Text buffer support.
   Several existing applets (sort, vi, less...) read
-  a whole file into memory and act on it.  There might be an opportunity
-  for shared code in there that could be moved into libbb...
+  a whole file into memory and act on it.  Use open_read_close().
 ---
 Memory Allocation
   We have a CONFIG_BUFFER mechanism that lets us select whether to do memory
@@ -251,7 +214,7 @@ Switch CONFIG_SYMBOLS to ENABLE_SYMBOLS
 FEATURE_CLEAN_UP
   This is more an unresolved issue than a to-do item.  More thought is needed.
 
-  Normally we rely on exit() to free memory, close files, and unmap segments
+  Normally we rely on exit() to free memory, close files and unmap segments
   for us.  This makes most calls to free(), close(), and unmap() optional in
   busybox applets that don't intend to run for very long, and optional stuff
   can be omitted to save size.
@@ -280,7 +243,6 @@ FEATURE_CLEAN_UP
   For right now, exit() handles it just fine.
 
 
-
 Minor stuff:
   watchdog.c could autodetect the timer duration via:
     if(!ioctl (fd, WDIOC_GETTIMEOUT, &tmo)) timer_duration = 1 + (tmo / 2);
@@ -293,23 +255,120 @@ Minor stuff:
   use bb_perror_msg where appropriate: See
   egrep "[^_]perror"
 ---
-  Remove superfluous fmt occurances: e.g.
-  fprintf(stderr, "%s: %s not found\n", "unalias", *argptr);
-  -> fprintf(stderr, "unalias: %s not found\n", *argptr);
----
   possible code duplication ingroup() and is_a_group_member()
 ---
-  Move __get_hz() to a better place and (re)use it in route.c, ash.c, msh.c
+  Move __get_hz() to a better place and (re)use it in route.c, ash.c
 ---
-
+  See grep -r strtod
+  Alot of duplication that wants cleanup.
+---
+  in_ether duplicated in network/{interface,ifconfig}.c
+---
+  unify progress_meter. wget, flash_eraseall, pipe_progress, fbsplash, setfiles.
+---
+   support start-stop-daemon -d <chdir-path>
 
 Code cleanup:
 
 Replace deprecated functions.
 
-bzero() -> memset()
----
-sigblock(), siggetmask(), sigsetmask(), sigmask() -> sigprocmask et al
 ---
 vdprintf() -> similar sized functionality
 ---
+
+(TODO list after discussion 11.05.2009)
+
+* shrink tc/brctl/ip
+  tc/brctl seem like fairly large things to try and tackle in your timeframe,
+  and i think people have posted attempts in the past. Adding additional
+  options to ip though seems reasonable.
+
+* add tests for some applets
+
+* implement POSIX utilities and audit them for POSIX conformance. then
+  audit them for GNU conformance. then document all your findings in a new
+  doc/conformance.txt file while perhaps implementing some of the missing
+  features.
+  you can find the latest POSIX documentation (1003.1-2008) here:
+  http://www.opengroup.org/onlinepubs/9699919799/
+  and the complete list of all utilities that POSIX covers:
+  http://www.opengroup.org/onlinepubs/9699919799/idx/utilities.html
+  The first step would to generate a file/matrix what is already archived
+  (also IPV6)
+
+* ntpdate/ntpd (see ntpclient and openntp for examples)
+
+* implement 'at'
+
+* rpcbind (former portmap) or equivalent
+  so that we don't have to use -o nolock on nfs mounts
+
+* check IPV6 compliance
+
+* generate a mini example using kernel+busybox only (+libc) for example
+
+* more support for advanced linux 2.6.x features, see: iotop
+  most likely there is more
+
+* even more support for statistics: mpstat, iostat, powertop....
+
+
+Unicode work needed:
+
+Unicode support uses libc multibyte functions if LOCALE_SUPPORT is on
+(in this case, the code will also support many more encodings),
+or uses a limited subset of re-implemented multibyte functions
+which only understand "one byte == one char" and unicode.
+This is useful if you build against uclibc with locale support disabled.
+
+Unicode-dependent applets must call check_unicode_in_env() when they
+begin executing.
+
+Applet code may conditionalize on UNICODE_SUPPORT in order to use
+more efficient code if unicode support is not requested.
+
+Available functions (if you need more, implement them in libbb/unicode.c
+so that they work without LOCALE_SUPPORT too):
+
+int bb_mbstrlen(str) - multibyte-aware strlen
+size_t mbstowcs(wdest, src, n)
+size_t wcstombs(dest, wsrc, n)
+size_t wcrtomb(str, wc, wstate)
+int iswspace(wc)
+int iswalnum(wc)
+int iswpunct(wc)
+
+Applets which only need to align columns on screen correctly:
+
+ls - already done, use source as an example
+df
+dumpleases
+lsmod
+
+Applets which need to account for Unicode chars
+while processing the output:
+
+[un]expand
+fold
+man
+watch
+cut (-b and -c are currently the same, needs fixing)
+
+These applets need to ensure that unicode input
+is handled correctly (say, <unicode><backspace> sequence):
+
+getty, login
+rm -i
+unzip (overwrite prompt)
+
+Viewers/editors are more difficult (many cases to get right).
+libbb/lineedit.c is an example how to do it:
+
+less, most, ed, vi
+awk
+[ef]grep
+sed
+
+Probably needs some specialized work:
+
+loadkeys

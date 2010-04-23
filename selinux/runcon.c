@@ -25,6 +25,8 @@
  *
  * Port to busybox: KaiGai Kohei <kaigai@kaigai.gr.jp>
  *                  - based on coreutils-5.97 (in Fedora Core 6)
+ *
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 #include <getopt.h>
 #include <selinux/context.h>
@@ -39,13 +41,13 @@ static context_t runcon_compute_new_context(char *user, char *role, char *type, 
 	security_context_t cur_context;
 
 	if (getcon(&cur_context))
-		bb_error_msg_and_die("cannot get current context");
+		bb_error_msg_and_die("can't get current context");
 
 	if (compute_trans) {
 		security_context_t file_context, new_context;
 
 		if (getfilecon(command, &file_context) < 0)
-			bb_error_msg_and_die("cannot retrieve attributes of '%s'",
+			bb_error_msg_and_die("can't retrieve attributes of '%s'",
 					     command);
 		if (security_compute_create(cur_context, file_context,
 					    SECCLASS_PROCESS, &new_context))
@@ -57,13 +59,13 @@ static context_t runcon_compute_new_context(char *user, char *role, char *type, 
 	if (!con)
 		bb_error_msg_and_die("'%s' is not a valid context", cur_context);
 	if (user && context_user_set(con, user))
-		bb_error_msg_and_die("failed to set new user '%s'", user);
+		bb_error_msg_and_die("can't set new user '%s'", user);
 	if (type && context_type_set(con, type))
-		bb_error_msg_and_die("failed to set new type '%s'", type);
+		bb_error_msg_and_die("can't set new type '%s'", type);
 	if (range && context_range_set(con, range))
-		bb_error_msg_and_die("failed to set new range '%s'", range);
+		bb_error_msg_and_die("can't set new range '%s'", range);
 	if (role && context_role_set(con, role))
-		bb_error_msg_and_die("failed to set new role '%s'", role);
+		bb_error_msg_and_die("can't set new role '%s'", role);
 
 	return con;
 }
@@ -88,7 +90,7 @@ static const char runcon_longopts[] ALIGN1 =
 #define OPTS_CONTEXT_COMPONENT		(OPTS_ROLE | OPTS_TYPE | OPTS_USER | OPTS_RANGE)
 
 int runcon_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int runcon_main(int argc, char **argv)
+int runcon_main(int argc UNUSED_PARAM, char **argv)
 {
 	char *role = NULL;
 	char *range = NULL;
@@ -127,10 +129,10 @@ int runcon_main(int argc, char **argv)
 				     context_str(con));
 
 	if (setexeccon(context_str(con)))
-		bb_error_msg_and_die("cannot set up security context '%s'",
+		bb_error_msg_and_die("can't set up security context '%s'",
 				     context_str(con));
 
 	execvp(argv[0], argv);
 
-	bb_perror_msg_and_die("cannot execute '%s'", argv[0]);
+	bb_perror_msg_and_die("can't execute '%s'", argv[0]);
 }

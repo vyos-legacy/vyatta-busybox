@@ -4,10 +4,7 @@
  *
  * Copyright 1995, 1996, 1997, 1998, 1999, 2000 by Theodore Ts'o.
  *
- * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
- * %End-Header%
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 #include <stdio.h>
@@ -37,8 +34,8 @@ void check_plausibility(const char *device, int force)
 	val = stat(device, &s);
 	if (force)
 		return;
-	if(val == -1)
-		bb_perror_msg_and_die("cannot stat %s", device);
+	if (val == -1)
+		bb_perror_msg_and_die("can't stat '%s'", device);
 	if (!S_ISBLK(s.st_mode)) {
 		printf("%s is not a block special device.\n", device);
 		proceed_question();
@@ -82,7 +79,7 @@ void check_mount(const char *device, int force, const char *type)
 
 	retval = ext2fs_check_if_mounted(device, &mount_flags);
 	if (retval) {
-		bb_error_msg("cannot determine if %s is mounted", device);
+		bb_error_msg("can't determine if %s is mounted", device);
 		return;
 	}
 	if (mount_flags & EXT2_MF_MOUNTED) {
@@ -219,14 +216,14 @@ void make_journal_device(char *journal_device, ext2_filsys fs, int quiet, int fo
 					EXT2_FLAG_JOURNAL_DEV_OK, 0,
 					fs->blocksize, io_ptr, &jfs);
 	if (retval)
-		bb_error_msg_and_die("cannot journal device %s", journal_device);
-	if(!quiet)
+		bb_error_msg_and_die("can't journal device %s", journal_device);
+	if (!quiet)
 		printf("Adding journal to device %s: ", journal_device);
 	fflush(stdout);
 	retval = ext2fs_add_journal_device(fs, jfs);
-	if(retval)
+	if (retval)
 		bb_error_msg_and_die("\nFailed to add journal to device %s", journal_device);
-	if(!quiet)
+	if (!quiet)
 		puts("done");
 	ext2fs_close(jfs);
 }
@@ -242,14 +239,14 @@ void make_journal_blocks(ext2_filsys fs, int journal_size, int journal_flags, in
 			~EXT3_FEATURE_COMPAT_HAS_JOURNAL;
 		return;
 	}
-	if(!quiet)
+	if (!quiet)
 		printf("Creating journal (%ld blocks): ", journal_blocks);
 	fflush(stdout);
 	retval = ext2fs_add_journal_inode(fs, journal_blocks,
 						  journal_flags);
-	if(retval)
-		bb_error_msg_and_die("cannot create journal");
-	if(!quiet)
+	if (retval)
+		bb_error_msg_and_die("can't create journal");
+	if (!quiet)
 		puts("done");
 }
 
@@ -262,6 +259,6 @@ char *e2fs_set_sbin_path(void)
 		oldpath = xasprintf("%s:%s", PATH_SET, oldpath);
 	 else
 		oldpath = PATH_SET;
-	putenv (oldpath);
+	putenv(oldpath);
 	return oldpath;
 }

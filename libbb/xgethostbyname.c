@@ -6,11 +6,9 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
-
-//#include <netdb.h>
 #include "libbb.h"
 
-struct hostent *xgethostbyname(const char *name)
+struct hostent* FAST_FUNC xgethostbyname(const char *name)
 {
 	struct hostent *retval = gethostbyname(name);
 	if (!retval)

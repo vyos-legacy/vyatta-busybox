@@ -72,7 +72,7 @@ config RESIZE
 	  terminal.
 
 config FEATURE_RESIZE_PRINT
-	bool "print environment variables"
+	bool "Print environment variables"
 	default n
 	depends on RESIZE
 	help
@@ -91,9 +91,30 @@ config SETCONSOLE
 config FEATURE_SETCONSOLE_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on SETCONSOLE && GETOPT_LONG
+	depends on SETCONSOLE && LONG_OPTS
 	help
 	  Support long options for the setconsole applet.
+
+config SETFONT
+	bool "setfont"
+	default n
+	help
+	  Allows to load console screen map. Useful for i18n.
+
+config FEATURE_SETFONT_TEXTUAL_MAP
+	bool "Support reading textual screen maps"
+	default n
+	depends on SETFONT
+	help
+	  Support reading textual screen maps.
+
+config DEFAULT_SETFONT_DIR
+	string "Default directory for console-tools files"
+	default ""
+	depends on SETFONT
+	help
+	  Directory to use if setfont's params are simple filenames
+	  (not /path/to/file or ./file). Default is "" (no default directory).
 
 config SETKEYCODES
 	bool "setkeycodes"
@@ -107,5 +128,28 @@ config SETLOGCONS
 	default n
 	help
 	  This program redirects the output console of kernel messages.
+
+config SHOWKEY
+	bool "showkey"
+	default n
+	help
+	  Shows keys pressed.
+
+comment "Common options for loadfont and setfont"
+	depends on LOADFONT || SETFONT
+
+config FEATURE_LOADFONT_PSF2
+	bool "Support for PSF2 console fonts"
+	default n
+	depends on LOADFONT || SETFONT
+	help
+	  Support PSF2 console fonts.
+
+config FEATURE_LOADFONT_RAW
+	bool "Support for old (raw) console fonts"
+	default n
+	depends on LOADFONT || SETFONT
+	help
+	  Support old (raw) console fonts.
 
 endmenu

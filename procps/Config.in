@@ -18,7 +18,7 @@ config FUSER
 	default n
 	help
 	  fuser lists all PIDs (Process IDs) that currently have a given
-	  file open.  fuser can also list all PIDs that have a given network
+	  file open. fuser can also list all PIDs that have a given network
 	  (TCP or UDP) port open.
 
 config KILL
@@ -26,7 +26,7 @@ config KILL
 	default n
 	help
 	  The command kill sends the specified signal to the specified
-	  process or process group.  If no signal is specified, the TERM
+	  process or process group. If no signal is specified, the TERM
 	  signal is sent.
 
 config KILLALL
@@ -35,7 +35,7 @@ config KILLALL
 	depends on KILL
 	help
 	  killall sends a signal to all processes running any of the
-	  specified commands.  If no signal name is specified, SIGTERM is
+	  specified commands. If no signal name is specified, SIGTERM is
 	  sent.
 
 config KILLALL5
@@ -91,13 +91,35 @@ config PS
 	  ps gives a snapshot of the current processes.
 
 config FEATURE_PS_WIDE
-	bool "Enable argument for wide output (-w)"
+	bool "Enable wide output option (-w)"
 	default n
 	depends on PS
 	help
 	  Support argument 'w' for wide output.
-	  If given once, 132 chars are printed and given more than
-	  one, the length is unlimited.
+	  If given once, 132 chars are printed, and if given more
+	  than once, the length is unlimited.
+
+config FEATURE_PS_TIME
+	bool "Enable time and elapsed time output"
+	default n
+	depends on PS && DESKTOP
+	help
+	  Support -o time and -o etime output specifiers.
+
+config FEATURE_PS_ADDITIONAL_COLUMNS
+	bool "Enable additional ps columns"
+	default n
+	depends on PS && DESKTOP
+	help
+	  Support -o rgroup, -o ruser, -o nice output specifiers.
+
+config FEATURE_PS_UNUSUAL_SYSTEMS
+	bool "Support Linux prior to 2.4.0 and non-ELF systems"
+	default n
+	depends on FEATURE_PS_TIME
+	help
+	  Include support for measuring HZ on old kernels and non-ELF systems
+	  (if you are on Linux 2.4.0+ and use ELF, you don't need this)
 
 config RENICE
 	bool "renice"
@@ -120,32 +142,58 @@ config TOP
 	  system.
 
 config FEATURE_TOP_CPU_USAGE_PERCENTAGE
-	bool "Show CPU per-process usage percentage (adds 2k bytes)"
+	bool "Show CPU per-process usage percentage"
 	default y
 	depends on TOP
 	help
 	  Make top display CPU usage for each process.
+	  This adds about 2k.
 
 config FEATURE_TOP_CPU_GLOBAL_PERCENTS
-	bool "Show CPU global usage percentage (adds 0.5k bytes)"
+	bool "Show CPU global usage percentage"
 	default y
 	depends on FEATURE_TOP_CPU_USAGE_PERCENTAGE
 	help
 	  Makes top display "CPU: NN% usr NN% sys..." line.
+	  This adds about 0.5k.
+
+config FEATURE_TOP_SMP_CPU
+	bool "SMP CPU usage display ('c' key)"
+	default n
+	depends on FEATURE_TOP_CPU_GLOBAL_PERCENTS
+	help
+	  Allow 'c' key to switch between individual/cumulative CPU stats
+	  This adds about 0.5k.
 
 config FEATURE_TOP_DECIMALS
-	bool "Show 1/10th of a percent in CPU/mem statistics (adds 0.3k bytes)"
+	bool "Show 1/10th of a percent in CPU/mem statistics"
 	default n
 	depends on FEATURE_TOP_CPU_USAGE_PERCENTAGE
 	help
 	  Show 1/10th of a percent in CPU/mem statistics.
+	  This adds about 0.3k.
 
-config FEATURE_TOPMEM
-	bool "topmem"
+config FEATURE_TOP_SMP_PROCESS
+	bool "Show CPU process runs on ('j' field)"
 	default n
 	depends on TOP
 	help
-	  Enable 's' in top (gives lots of memory info)
+	  Show CPU where process was last found running on.
+	  This is the 'j' field.
+
+config FEATURE_TOPMEM
+	bool "Topmem command ('s' key)"
+	default n
+	depends on TOP
+	help
+	  Enable 's' in top (gives lots of memory info).
+
+config FEATURE_SHOW_THREADS
+	bool "Support for showing threads in ps/top"
+	default n
+	depends on PS || TOP
+	help
+	  Enables ps -T option and 'h' command in top
 
 config UPTIME
 	bool "uptime"
@@ -158,11 +206,8 @@ config UPTIME
 config WATCH
 	bool "watch"
 	default n
-	#huh?? select DATE
 	help
 	  watch is used to execute a program periodically, showing
 	  output to the screen.
 
-
 endmenu
-

@@ -152,7 +152,7 @@ static dev_t lvm_get_devno(const char *lvm_device)
 	dev_t ret = 0;
 
 	DBG(DEBUG_DEVNAME, printf("opening %s\n", lvm_device));
-	if ((lvf = fopen(lvm_device, "r")) == NULL) {
+	if ((lvf = fopen_for_read(lvm_device)) == NULL) {
 		DBG(DEBUG_DEVNAME, printf("%s: (%d) %s\n", lvm_device, errno,
 					  strerror(errno)));
 		return 0;
@@ -233,11 +233,11 @@ evms_probe_all(blkid_cache cache)
 	FILE *procpt;
 	char device[110];
 
-	procpt = fopen(PROC_EVMS_VOLUMES, "r");
+	procpt = fopen_for_read(PROC_EVMS_VOLUMES);
 	if (!procpt)
 		return 0;
 	while (fgets(line, sizeof(line), procpt)) {
-		if (sscanf (line, " %d %d %d %*s %*s %[^\n ]",
+		if (sscanf(line, " %d %d %d %*s %*s %[^\n ]",
 			    &ma, &mi, &sz, device) != 4)
 			continue;
 
@@ -258,7 +258,7 @@ int blkid_probe_all(blkid_cache cache)
 {
 	FILE *proc;
 	char line[1024];
-	char ptname0[128], ptname1[128], *ptname = 0;
+	char ptname0[128], ptname1[128], *ptname = NULL;
 	char *ptnames[2];
 	dev_t devs[2];
 	int ma, mi;
@@ -273,7 +273,7 @@ int blkid_probe_all(blkid_cache cache)
 		return -BLKID_ERR_PARAM;
 
 	if (cache->bic_flags & BLKID_BIC_FL_PROBED &&
-	    time(0) - cache->bic_time < BLKID_PROBE_INTERVAL)
+	    time(NULL) - cache->bic_time < BLKID_PROBE_INTERVAL)
 		return 0;
 
 	blkid_read_cache(cache);
@@ -282,7 +282,7 @@ int blkid_probe_all(blkid_cache cache)
 	lvm_probe_all(cache);
 #endif
 
-	proc = fopen(PROC_PARTITIONS, "r");
+	proc = fopen_for_read(PROC_PARTITIONS);
 	if (!proc)
 		return -BLKID_ERR_PROC;
 
@@ -335,7 +335,7 @@ int blkid_probe_all(blkid_cache cache)
 
 	fclose(proc);
 
-	cache->bic_time = time(0);
+	cache->bic_time = time(NULL);
 	cache->bic_flags |= BLKID_BIC_FL_PROBED;
 	blkid_flush_cache(cache);
 	return 0;

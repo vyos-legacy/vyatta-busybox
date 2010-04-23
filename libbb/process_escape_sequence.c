@@ -16,19 +16,23 @@
 #undef _tolower
 #define _tolower(X) ((X)|((char) 0x20))
 
-char bb_process_escape_sequence(const char **ptr)
+char FAST_FUNC bb_process_escape_sequence(const char **ptr)
 {
+	/* bash builtin "echo -e '\ec'" interprets \e as ESC,
+	 * but coreutils "/bin/echo -e '\ec'" does not.
+	 * manpages tend to support coreutils way.
+	 * Update: coreutils added support for \e on 28 Oct 2009. */
 	static const char charmap[] ALIGN1 = {
-		'a',  'b',  'f',  'n',  'r',  't',  'v',  '\\', 0,
-		'\a', '\b', '\f', '\n', '\r', '\t', '\v', '\\', '\\' };
+		'a',  'b', 'e', 'f',  'n',  'r',  't',  'v',  '\\', 0,
+		'\a', '\b', 27, '\f', '\n', '\r', '\t', '\v', '\\', '\\' };
 
 	const char *p;
 	const char *q;
-	unsigned int num_digits;
-	unsigned int r;
-	unsigned int n;
-	unsigned int d;
-	unsigned int base;
+	unsigned num_digits;
+	unsigned r;
+	unsigned n;
+	unsigned d;
+	unsigned base;
 
 	num_digits = n = 0;
 	base = 8;
@@ -42,6 +46,9 @@ char bb_process_escape_sequence(const char **ptr)
 	}
 #endif
 
+	/* bash requires leading 0 in octal escapes:
+	 * \02 works, \2 does not (prints \ and 2).
+	 * We treat \2 as a valid octal escape sequence. */
 	do {
 		d = (unsigned char)(*q) - '0';
 #ifdef WANT_HEX_ESCAPES
@@ -77,7 +84,10 @@ char bb_process_escape_sequence(const char **ptr)
 				break;
 			}
 		} while (*++p);
-		n = *(p + (sizeof(charmap)/2));
+		/* p points to found escape char or NUL,
+		 * advance it and find what it translates to */
+		p += sizeof(charmap) / 2;
+		n = *p;
 	}
 
 	*ptr = q;

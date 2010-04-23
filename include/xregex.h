@@ -8,11 +8,16 @@
  *
  * Licensed under GPLv2 or later, see file License in this tarball for details.
  */
-#ifndef __BB_REGEX__
-#define __BB_REGEX__
+#ifndef BB_REGEX_H
+#define BB_REGEX_H 1
 
 #include <regex.h>
-char* regcomp_or_errmsg(regex_t *preg, const char *regex, int cflags);
-void xregcomp(regex_t *preg, const char *regex, int cflags);
+
+PUSH_AND_SET_FUNCTION_VISIBILITY_TO_HIDDEN
+
+char* regcomp_or_errmsg(regex_t *preg, const char *regex, int cflags) FAST_FUNC;
+void xregcomp(regex_t *preg, const char *regex, int cflags) FAST_FUNC;
+
+POP_SAVED_FUNCTION_VISIBILITY
 
 #endif

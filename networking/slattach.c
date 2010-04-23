@@ -20,12 +20,12 @@ struct globals {
 	int handle;
 	int saved_disc;
 	struct termios saved_state;
-};
+} FIX_ALIASING;
 #define G (*(struct globals*)&bb_common_bufsiz1)
 #define handle       (G.handle      )
 #define saved_disc   (G.saved_disc  )
 #define saved_state  (G.saved_state )
-#define INIT_G() do {} while (0)
+#define INIT_G() do { } while (0)
 
 
 /*
@@ -43,7 +43,7 @@ static void save_state(void)
 	xioctl(handle, TIOCGETD, &saved_disc);
 }
 
-static int set_termios_state_and_warn(struct termios *state)
+static int set_termios_state_or_warn(struct termios *state)
 {
 	int ret;
 
@@ -64,7 +64,7 @@ static int set_termios_state_and_warn(struct termios *state)
  * Go on after errors: we want to restore as many controlled ttys
  * as possible.
  */
-static void restore_state_and_exit(int exitcode) ATTRIBUTE_NORETURN;
+static void restore_state_and_exit(int exitcode) NORETURN;
 static void restore_state_and_exit(int exitcode)
 {
 	struct termios state;
@@ -78,12 +78,12 @@ static void restore_state_and_exit(int exitcode)
 	memcpy(&state, &saved_state, sizeof(state));
 	cfsetispeed(&state, B0);
 	cfsetospeed(&state, B0);
-	if (set_termios_state_and_warn(&state))
+	if (set_termios_state_or_warn(&state))
 		exitcode = 1;
 	sleep(1);
 
 	/* Restore line status */
-	if (set_termios_state_and_warn(&saved_state))
+	if (set_termios_state_or_warn(&saved_state))
 		exit(EXIT_FAILURE);
 	if (ENABLE_FEATURE_CLEAN_UP)
 		close(handle);
@@ -99,7 +99,7 @@ static void set_state(struct termios *state, int encap)
 	int disc;
 
 	/* Set line status */
-	if (set_termios_state_and_warn(state))
+	if (set_termios_state_or_warn(state))
 		goto bad;
 	/* Set line discliple (N_SLIP always) */
 	disc = N_SLIP;
@@ -110,17 +110,17 @@ static void set_state(struct termios *state, int encap)
 	/* Set encapsulation (SLIP, CSLIP, etc) */
 	if (ioctl_or_warn(handle, SIOCSIFENCAP, &encap) < 0) {
  bad:
-		restore_state_and_exit(1);
+		restore_state_and_exit(EXIT_FAILURE);
 	}
 }
 
-static void sig_handler(int signo)
+static void sig_handler(int signo UNUSED_PARAM)
 {
-	restore_state_and_exit(0);
+	restore_state_and_exit(EXIT_SUCCESS);
 }
 
 int slattach_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int slattach_main(int argc, char **argv)
+int slattach_main(int argc UNUSED_PARAM, char **argv)
 {
 	/* Line discipline code table */
 	static const char proto_names[] ALIGN1 =
@@ -175,10 +175,12 @@ int slattach_main(int argc, char **argv)
 
 	/* Trap signals in order to restore tty states upon exit */
 	if (!(opt & OPT_e_quit)) {
-		signal(SIGHUP, sig_handler);
-		signal(SIGINT, sig_handler);
-		signal(SIGQUIT, sig_handler);
-		signal(SIGTERM, sig_handler);
+		bb_signals(0
+			+ (1 << SIGHUP)
+			+ (1 << SIGINT)
+			+ (1 << SIGQUIT)
+			+ (1 << SIGTERM)
+			, sig_handler);
 	}
 
 	/* Open tty */
@@ -204,6 +206,8 @@ int slattach_main(int argc, char **argv)
 		state.c_cflag = CS8 | HUPCL | CREAD
 		              | ((opt & OPT_L_local) ? CLOCAL : 0)
 		              | ((opt & OPT_F_noflow) ? 0 : CRTSCTS);
+		cfsetispeed(&state, cfgetispeed(&saved_state));
+		cfsetospeed(&state, cfgetospeed(&saved_state));
 	}
 
 	if (opt & OPT_s_baud) {
@@ -237,5 +241,5 @@ int slattach_main(int argc, char **argv)
 		system(extcmd);
 
 	/* Restore states and exit */
-	restore_state_and_exit(0);
+	restore_state_and_exit(EXIT_SUCCESS);
 }

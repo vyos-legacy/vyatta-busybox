@@ -19,24 +19,22 @@
 /* This is a NOFORK applet. Be very careful! */
 
 int yes_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int yes_main(int argc, char **argv)
+int yes_main(int argc UNUSED_PARAM, char **argv)
 {
-	char **first_arg;
+	char **pp;
 
 	argv[0] = (char*)"y";
-	if (argc != 1) {
+	if (argv[1])
 		++argv;
-	}
 
-	first_arg = argv;
 	do {
+		pp = argv;
 		while (1) {
-			fputs(*argv, stdout);
-			if (!*++argv)
+			fputs(*pp, stdout);
+			if (!*++pp)
 				break;
 			putchar(' ');
 		}
-		argv = first_arg;
 	} while (putchar('\n') != EOF);
 
 	bb_perror_nomsg_and_die();

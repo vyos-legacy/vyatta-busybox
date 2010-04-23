@@ -4,7 +4,7 @@
  *
  * Copyright (C) 1999,2000,2001 by Lineo, inc.
  * Written by Mark Whitley <markw@codepoet.org>
- * debloated by Bernhard Fischer
+ * debloated by Bernhard Reutner-Fischer
  *
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
@@ -33,11 +33,6 @@ enum {
 	NON_RANGE = -1
 };
 
-/* growable array holding a series of lists */
-static struct cut_list *cut_lists;
-static unsigned int nlists;	/* number of elements in above list */
-
-
 static int cmpfunc(const void *a, const void *b)
 {
 	return (((struct cut_list *) a)->startpos -
@@ -45,18 +40,19 @@ static int cmpfunc(const void *a, const void *b)
 
 }
 
-static void cut_file(FILE *file, char delim)
+static void cut_file(FILE *file, char delim, const struct cut_list *cut_lists, unsigned nlists)
 {
-	char *line = NULL;
-	unsigned int linenum = 0;	/* keep these zero-based to be consistent */
+	char *line;
+	unsigned linenum = 0;	/* keep these zero-based to be consistent */
 
 	/* go through every line in the file */
-	while ((line = xmalloc_getline(file)) != NULL) {
+	while ((line = xmalloc_fgetline(file)) != NULL) {
 
 		/* set up a list so we can keep track of what's been printed */
-		char * printed = xzalloc(strlen(line) * sizeof(char));
-		char * orig_line = line;
-		unsigned int cl_pos = 0;
+		int linelen = strlen(line);
+		char *printed = xzalloc(linelen + 1);
+		char *orig_line = line;
+		unsigned cl_pos = 0;
 		int spos;
 
 		/* cut based on chars/bytes XXX: only works when sizeof(char) == byte */
@@ -64,15 +60,19 @@ static void cut_file(FILE *file, char delim)
 			/* print the chars specified in each cut list */
 			for (; cl_pos < nlists; cl_pos++) {
 				spos = cut_lists[cl_pos].startpos;
-				while (spos < strlen(line)) {
+				while (spos < linelen) {
 					if (!printed[spos]) {
 						printed[spos] = 'X';
 						putchar(line[spos]);
 					}
 					spos++;
 					if (spos > cut_lists[cl_pos].endpos
-						|| cut_lists[cl_pos].endpos == NON_RANGE)
+					/* NON_RANGE is -1, so if below is true,
+					 * the above was true too (spos is >= 0) */
+					/* || cut_lists[cl_pos].endpos == NON_RANGE */
+					) {
 						break;
+					}
 				}
 			}
 		} else if (delim == '\n') {	/* cut by lines */
@@ -80,16 +80,17 @@ static void cut_file(FILE *file, char delim)
 
 			/* get out if we have no more lists to process or if the lines
 			 * are lower than what we're interested in */
-			if (linenum < spos || cl_pos >= nlists)
+			if (((int)linenum < spos) || (cl_pos >= nlists))
 				goto next_line;
 
 			/* if the line we're looking for is lower than the one we were
 			 * passed, it means we displayed it already, so move on */
-			while (spos < linenum) {
+			while (spos < (int)linenum) {
 				spos++;
 				/* go to the next list if we're at the end of this one */
 				if (spos > cut_lists[cl_pos].endpos
-					|| cut_lists[cl_pos].endpos == NON_RANGE) {
+				 || cut_lists[cl_pos].endpos == NON_RANGE
+				) {
 					cl_pos++;
 					/* get out if there's no more lists to process */
 					if (cl_pos >= nlists)
@@ -97,7 +98,7 @@ static void cut_file(FILE *file, char delim)
 					spos = cut_lists[cl_pos].startpos;
 					/* get out if the current line is lower than the one
 					 * we just became interested in */
-					if (linenum < spos)
+					if ((int)linenum < spos)
 						goto next_line;
 				}
 			}
@@ -110,7 +111,10 @@ static void cut_file(FILE *file, char delim)
 			int ndelim = -1;	/* zero-based / one-based problem */
 			int nfields_printed = 0;
 			char *field = NULL;
-			const char delimiter[2] = { delim, 0 };
+			char delimiter[2];
+
+			delimiter[0] = delim;
+			delimiter[1] = 0;
 
 			/* does this line contain any delimiters? */
 			if (strchr(line, delim) == NULL) {
@@ -148,7 +152,7 @@ static void cut_file(FILE *file, char delim)
 					 * this is a list, and we're not at the end of that
 					 * list */
 				} while (spos <= cut_lists[cl_pos].endpos && line
-						 && cut_lists[cl_pos].endpos != NON_RANGE);
+						&& cut_lists[cl_pos].endpos != NON_RANGE);
 			}
 		}
 		/* if we printed anything at all, we need to finish it with a
@@ -162,19 +166,23 @@ static void cut_file(FILE *file, char delim)
 }
 
 int cut_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int cut_main(int argc, char **argv)
+int cut_main(int argc UNUSED_PARAM, char **argv)
 {
+	/* growable array holding a series of lists */
+	struct cut_list *cut_lists = NULL;
+	unsigned nlists = 0;	/* number of elements in above list */
 	char delim = '\t';	/* delimiter, default is tab */
 	char *sopt, *ltok;
+	unsigned opt;
 
 	opt_complementary = "b--bcf:c--bcf:f--bcf";
-	getopt32(argv, optstring, &sopt, &sopt, &sopt, &ltok);
+	opt = getopt32(argv, optstring, &sopt, &sopt, &sopt, &ltok);
 //	argc -= optind;
 	argv += optind;
-	if (!(option_mask32 & (CUT_OPT_BYTE_FLGS | CUT_OPT_CHAR_FLGS | CUT_OPT_FIELDS_FLGS)))
+	if (!(opt & (CUT_OPT_BYTE_FLGS | CUT_OPT_CHAR_FLGS | CUT_OPT_FIELDS_FLGS)))
 		bb_error_msg_and_die("expected a list of bytes, characters, or fields");
 
-	if (option_mask32 & CUT_OPT_DELIM_FLGS) {
+	if (opt & CUT_OPT_DELIM_FLGS) {
 		if (ltok[0] && ltok[1]) { /* more than 1 char? */
 			bb_error_msg_and_die("the delimiter must be a single character");
 		}
@@ -182,10 +190,10 @@ int cut_main(int argc, char **argv)
 	}
 
 	/*  non-field (char or byte) cutting has some special handling */
-	if (!(option_mask32 & CUT_OPT_FIELDS_FLGS)) {
+	if (!(opt & CUT_OPT_FIELDS_FLGS)) {
 		static const char _op_on_field[] ALIGN1 = " only when operating on fields";
 
-		if (option_mask32 & CUT_OPT_SUPPRESS_FLGS) {
+		if (opt & CUT_OPT_SUPPRESS_FLGS) {
 			bb_error_msg_and_die
 				("suppressing non-delimited lines makes sense%s",
 				 _op_on_field);
@@ -205,7 +213,7 @@ int cut_main(int argc, char **argv)
 		char *ntok;
 		int s = 0, e = 0;
 
-		/* take apart the lists, one by one (they are separated with commas */
+		/* take apart the lists, one by one (they are separated with commas) */
 		while ((ltok = strsep(&sopt, ",")) != NULL) {
 
 			/* it's actually legal to pass an empty list */
@@ -231,8 +239,8 @@ int cut_main(int argc, char **argv)
 				e = EOL;
 			} else {
 				e = xatoi_u(ltok);
-				/* if the user specified and end position of 0, that means "til the
-				 * end of the line */
+				/* if the user specified and end position of 0,
+				 * that means "til the end of the line" */
 				if (e == 0)
 					e = EOL;
 				e--;	/* again, arrays are zero based, lines are 1 based */
@@ -241,9 +249,12 @@ int cut_main(int argc, char **argv)
 			}
 
 			/* add the new list */
-			cut_lists = xrealloc(cut_lists, sizeof(struct cut_list) * (++nlists));
-			cut_lists[nlists-1].startpos = s;
-			cut_lists[nlists-1].endpos = e;
+			cut_lists = xrealloc_vector(cut_lists, 4, nlists);
+			/* NB: startpos is always >= 0,
+			 * while endpos may be = NON_RANGE (-1) */
+			cut_lists[nlists].startpos = s;
+			cut_lists[nlists].endpos = e;
+			nlists++;
 		}
 
 		/* make sure we got some cut positions out of all that */
@@ -253,30 +264,23 @@ int cut_main(int argc, char **argv)
 		/* now that the lists are parsed, we need to sort them to make life
 		 * easier on us when it comes time to print the chars / fields / lines
 		 */
-		qsort(cut_lists, nlists, sizeof(struct cut_list), cmpfunc);
+		qsort(cut_lists, nlists, sizeof(cut_lists[0]), cmpfunc);
 	}
 
 	{
 		int retval = EXIT_SUCCESS;
-		FILE *file = stdin;
 
-		if (!*argv) {
-			argv--;
-			goto jump_in;
-		}
+		if (!*argv)
+			*--argv = (char *)"-";
 
 		do {
-			file = stdin;
-			if (NOT_LONE_DASH(*argv))
-				file = fopen_or_warn(*argv, "r");
+			FILE *file = fopen_or_warn_stdin(*argv);
 			if (!file) {
 				retval = EXIT_FAILURE;
 				continue;
 			}
- jump_in:
-			cut_file(file, delim);
-			if (NOT_LONE_DASH(*argv))
-				fclose(file);
+			cut_file(file, delim, cut_lists, nlists);
+			fclose_if_not_stdin(file);
 		} while (*++argv);
 
 		if (ENABLE_FEATURE_CLEAN_UP)

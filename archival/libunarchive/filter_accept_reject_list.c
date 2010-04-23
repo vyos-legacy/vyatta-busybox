@@ -11,13 +11,16 @@
 /*
  * Accept names that are in the accept list and not in the reject list
  */
-char filter_accept_reject_list(archive_handle_t *archive_handle)
+char FAST_FUNC filter_accept_reject_list(archive_handle_t *archive_handle)
 {
-	const char *key = archive_handle->file_header->name;
-	const llist_t *reject_entry = find_list_entry2(archive_handle->reject, key);
+	const char *key;
+	const llist_t *reject_entry;
 	const llist_t *accept_entry;
 
+	key = archive_handle->file_header->name;
+
 	/* If the key is in a reject list fail */
+	reject_entry = find_list_entry2(archive_handle->reject, key);
 	if (reject_entry) {
 		return EXIT_FAILURE;
 	}

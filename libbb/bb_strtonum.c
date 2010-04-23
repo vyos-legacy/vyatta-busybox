@@ -10,7 +10,7 @@
 #include "libbb.h"
 
 /* On exit: errno = 0 only if there was non-empty, '\0' terminated value
- * errno = EINVAL if value was not '\0' terminated, but othervise ok
+ * errno = EINVAL if value was not '\0' terminated, but otherwise ok
  *    Return value is still valid, caller should just check whether end[0]
  *    is a valid terminating char for particular case. OTOH, if caller
  *    requires '\0' terminated input, [s]he can just check errno == 0.
@@ -18,6 +18,16 @@
  * errno = ERANGE if value is out of range, missing, etc.
  * errno = ERANGE if value had minus sign for strtouXX (even "-0" is not ok )
  *    return value is all-ones in this case.
+ *
+ * Test code:
+ * char *endptr;
+ * const char *minus = "-";
+ * errno = 0;
+ * bb_strtoi(minus, &endptr, 0); // must set ERANGE
+ * printf("minus:%p endptr:%p errno:%d EINVAL:%d\n", minus, endptr, errno, EINVAL);
+ * errno = 0;
+ * bb_strtoi("-0-", &endptr, 0); // must set EINVAL and point to second '-'
+ * printf("endptr[0]:%c errno:%d EINVAL:%d\n", endptr[0], errno, EINVAL);
  */
 
 static unsigned long long ret_ERANGE(void)
@@ -29,12 +39,6 @@ static unsigned long long ret_ERANGE(void)
 static unsigned long long handle_errors(unsigned long long v, char **endp, char *endptr)
 {
 	if (endp) *endp = endptr;
-
-	/* Check for the weird "feature":
-	 * a "-" string is apparently a valid "number" for strto[u]l[l]!
-	 * It returns zero and errno is 0! :( */
-	if (endptr[-1] == '-')
-		return ret_ERANGE();
 
 	/* errno is already set to ERANGE by strtoXXX if value overflowed */
 	if (endptr[0]) {
@@ -48,7 +52,7 @@ static unsigned long long handle_errors(unsigned long long v, char **endp, char 
 }
 
 
-unsigned long long bb_strtoull(const char *arg, char **endp, int base)
+unsigned long long FAST_FUNC bb_strtoull(const char *arg, char **endp, int base)
 {
 	unsigned long long v;
 	char *endptr;
@@ -63,19 +67,24 @@ unsigned long long bb_strtoull(const char *arg, char **endp, int base)
 	return handle_errors(v, endp, endptr);
 }
 
-long long bb_strtoll(const char *arg, char **endp, int base)
+long long FAST_FUNC bb_strtoll(const char *arg, char **endp, int base)
 {
 	unsigned long long v;
 	char *endptr;
 
-	if (arg[0] != '-' && !isalnum(arg[0])) return ret_ERANGE();
+	/* Check for the weird "feature":
+	 * a "-" string is apparently a valid "number" for strto[u]l[l]!
+	 * It returns zero and errno is 0! :( */
+	char first = (arg[0] != '-' ? arg[0] : arg[1]);
+	if (!isalnum(first)) return ret_ERANGE();
+
 	errno = 0;
 	v = strtoll(arg, &endptr, base);
 	return handle_errors(v, endp, endptr);
 }
 
 #if ULONG_MAX != ULLONG_MAX
-unsigned long bb_strtoul(const char *arg, char **endp, int base)
+unsigned long FAST_FUNC bb_strtoul(const char *arg, char **endp, int base)
 {
 	unsigned long v;
 	char *endptr;
@@ -86,12 +95,14 @@ unsigned long bb_strtoul(const char *arg, char **endp, int base)
 	return handle_errors(v, endp, endptr);
 }
 
-long bb_strtol(const char *arg, char **endp, int base)
+long FAST_FUNC bb_strtol(const char *arg, char **endp, int base)
 {
 	long v;
 	char *endptr;
 
-	if (arg[0] != '-' && !isalnum(arg[0])) return ret_ERANGE();
+	char first = (arg[0] != '-' ? arg[0] : arg[1]);
+	if (!isalnum(first)) return ret_ERANGE();
+
 	errno = 0;
 	v = strtol(arg, &endptr, base);
 	return handle_errors(v, endp, endptr);
@@ -99,7 +110,7 @@ long bb_strtol(const char *arg, char **endp, int base)
 #endif
 
 #if UINT_MAX != ULONG_MAX
-unsigned bb_strtou(const char *arg, char **endp, int base)
+unsigned FAST_FUNC bb_strtou(const char *arg, char **endp, int base)
 {
 	unsigned long v;
 	char *endptr;
@@ -111,46 +122,18 @@ unsigned bb_strtou(const char *arg, char **endp, int base)
 	return handle_errors(v, endp, endptr);
 }
 
-int bb_strtoi(const char *arg, char **endp, int base)
+int FAST_FUNC bb_strtoi(const char *arg, char **endp, int base)
 {
 	long v;
 	char *endptr;
 
-	if (arg[0] != '-' && !isalnum(arg[0])) return ret_ERANGE();
+	char first = (arg[0] != '-' ? arg[0] : arg[1]);
+	if (!isalnum(first)) return ret_ERANGE();
+
 	errno = 0;
 	v = strtol(arg, &endptr, base);
 	if (v > INT_MAX) return ret_ERANGE();
 	if (v < INT_MIN) return ret_ERANGE();
 	return handle_errors(v, endp, endptr);
 }
-#endif
-
-/* Floating point */
-
-#if 0
-
-#include <math.h>  /* just for HUGE_VAL */
-#define NOT_DIGIT(a) (((unsigned char)(a-'0')) > 9)
-double bb_strtod(const char *arg, char **endp)
-{
-	double v;
-	char *endptr;
-
-	if (arg[0] != '-' && NOT_DIGIT(arg[0])) goto err;
-	errno = 0;
-	v = strtod(arg, &endptr);
-	if (endp) *endp = endptr;
-	if (endptr[0]) {
-		/* "1234abcg" or out-of-range? */
-		if (isalnum(endptr[0]) || errno) {
- err:
-			errno = ERANGE;
-			return HUGE_VAL;
-		}
-		/* good number, just suspicious terminator */
-		errno = EINVAL;
-	}
-	return v;
-}
-
 #endif

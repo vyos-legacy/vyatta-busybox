@@ -116,11 +116,11 @@ static int builtin_read(struct child_prog *cmd);
 /* function prototypes for shell stuff */
 static void checkjobs(struct jobset *job_list);
 static void remove_job(struct jobset *j_list, struct job *job);
-static int get_command_bufsiz(FILE * source, char *command);
+static int get_command_bufsiz(FILE *source, char *command);
 static int parse_command(char **command_ptr, struct job *job, int *inbg);
 static int run_command(struct job *newjob, int inbg, int outpipe[2]);
-static int pseudo_exec(struct child_prog *cmd) ATTRIBUTE_NORETURN;
-static int busy_loop(FILE * input);
+static int pseudo_exec(struct child_prog *cmd) NORETURN;
+static int busy_loop(FILE *input);
 
 
 /* Table of built-in functions (these are non-forking builtins, meaning they
@@ -177,7 +177,7 @@ static inline void debug_printf(const char *format, ...)
 	va_end(args);
 }
 #else
-static inline void debug_printf(const char ATTRIBUTE_UNUSED *format, ...) { }
+static inline void debug_printf(const char UNUSED_PARAM *format, ...) { }
 #endif
 
 /*
@@ -308,12 +308,13 @@ static int builtin_fg_bg(struct child_prog *child)
 }
 
 /* built-in 'help' handler */
-static int builtin_help(struct child_prog ATTRIBUTE_UNUSED *dummy)
+static int builtin_help(struct child_prog UNUSED_PARAM *dummy)
 {
 	const struct built_in_command *x;
 
-	printf("\nBuilt-in commands:\n"
-	       "-------------------\n");
+	printf(
+		"Built-in commands:\n"
+		"------------------\n");
 	for (x = bltins; x <= &VEC_LAST(bltins); x++) {
 		if (x->descr == NULL)
 			continue;
@@ -342,7 +343,7 @@ static int builtin_jobs(struct child_prog *child)
 
 
 /* built-in 'pwd' handler */
-static int builtin_pwd(struct child_prog ATTRIBUTE_UNUSED *dummy)
+static int builtin_pwd(struct child_prog UNUSED_PARAM *dummy)
 {
 	update_cwd();
 	puts(cwd);
@@ -566,7 +567,7 @@ static int setup_redirects(struct child_prog *prog, int squirrel[])
 			break;
 		}
 
-		openfd = open3_or_warn(redir->filename, mode, 0666);
+		openfd = open_or_warn(redir->filename, mode);
 		if (openfd < 0) {
 			/* this could get lost if stderr has been redirected, but
 			   bash and ash both lose it as well (though zsh doesn't!) */
@@ -643,7 +644,7 @@ static inline const char* setup_prompt_string(void)
 static line_input_t *line_input_state;
 #endif
 
-static int get_command_bufsiz(FILE * source, char *command)
+static int get_command_bufsiz(FILE *source, char *command)
 {
 	const char *prompt_str;
 
@@ -696,7 +697,7 @@ static char * strsep_space(char *string, int * ix)
 
 	/* Find the end of any whitespace trailing behind
 	 * the token and let that be part of the token */
-	while (string[*ix] && (isspace)(string[*ix]) ) {
+	while (string[*ix] && isspace(string[*ix])) {
 		(*ix)++;
 	}
 
@@ -840,7 +841,7 @@ static int expand_arguments(char *command)
 				num_skip_chars = 1;
 			} else {
 				src = dst + 1;
-				while ((isalnum)(*src) || *src == '_') src++;
+				while (isalnum(*src) || *src == '_') src++;
 			}
 			if (src == NULL) {
 				src = dst+dstlen;
@@ -949,8 +950,12 @@ static int parse_command(char **command_ptr, struct job *job, int *inbg)
 					*buf++ = '\\';
 					*buf++ = '\\';
 				}
-			} else if (*src == '*' || *src == '?' || *src == '[' ||
-					   *src == ']') *buf++ = '\\';
+			} else
+			if (*src == '*' || *src == '?'
+			 || *src == '[' || *src == ']'
+			) {
+				*buf++ = '\\';
+			}
 			*buf++ = *src;
 		} else if (isspace(*src)) {
 			if (*prog->argv[argc_l] || (flag & LASH_OPT_SAW_QUOTE)) {
@@ -1326,7 +1331,7 @@ static int run_command(struct job *newjob, int inbg, int outpipe[2])
 	return 0;
 }
 
-static int busy_loop(FILE * input)
+static int busy_loop(FILE *input)
 {
 	char *command;
 	char *next_command = NULL;
@@ -1364,8 +1369,9 @@ static int busy_loop(FILE * input)
 				continue;
 			}
 
-			if (!parse_command(&next_command, &newjob, &inbg) &&
-				newjob.num_progs) {
+			if (!parse_command(&next_command, &newjob, &inbg)
+			 && newjob.num_progs
+			) {
 				int pipefds[2] = { -1, -1 };
 				debug_printf("job=%p fed to run_command by busy_loop()'\n",
 						&newjob);
@@ -1513,7 +1519,7 @@ int lash_main(int argc, char **argv)
 
 	if (global_argv[0] && global_argv[0][0] == '-') {
 		FILE *prof_input;
-		prof_input = fopen("/etc/profile", "r");
+		prof_input = fopen_for_read("/etc/profile");
 		if (prof_input) {
 			llist_add_to(&close_me_list, (void *)(long)fileno(prof_input));
 			/* Now run the file */
@@ -1553,7 +1559,7 @@ int lash_main(int argc, char **argv)
 		}
 	} else if (!local_pending_command && global_argv[optind]) {
 		//printf( "optind=%d  argv[optind]='%s'\n", optind, argv[optind]);
-		input = xfopen(global_argv[optind], "r");
+		input = xfopen_for_read(global_argv[optind]);
 		/* be lazy, never mark this closed */
 		llist_add_to(&close_me_list, (void *)(long)fileno(input));
 	}

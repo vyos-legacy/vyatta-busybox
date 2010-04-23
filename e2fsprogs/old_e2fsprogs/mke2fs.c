@@ -5,8 +5,7 @@
  * Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
  *	2003, 2004, 2005 by Theodore Ts'o.
  *
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 /* Usage: mke2fs [options] device
@@ -176,7 +175,7 @@ static void mke2fs_error_msg_and_die(int retval, const char *fmt, ...)
 
 	if (retval) {
 		va_start(ap, fmt);
-		fprintf(stderr,"\nCould not ");
+		fprintf(stderr, "\nCould not ");
 		vfprintf(stderr, fmt, ap);
 		fprintf(stderr, "\n");
 		va_end(ap);
@@ -209,7 +208,7 @@ static void mke2fs_warning_msg(int retval, char *fmt, ... )
 
 	if (retval) {
 		va_start(ap, fmt);
-		fprintf(stderr,"\nWarning: ");
+		fprintf(stderr, "\nWarning: ");
 		vfprintf(stderr, fmt, ap);
 		fprintf(stderr, "\n");
 		va_end(ap);
@@ -225,7 +224,7 @@ static void read_bb_file(ext2_filsys fs, badblocks_list *bb_list,
 	FILE		*f;
 	errcode_t	retval;
 
-	f = xfopen(bad_blocks_file, "r");
+	f = xfopen_for_read(bad_blocks_file);
 	retval = ext2fs_read_bb_FILE(fs, f, bb_list, invalid_block);
 	fclose (f);
 	mke2fs_error_msg_and_die(retval, "read bad blocks from list");
@@ -246,7 +245,7 @@ static void test_disk(ext2_filsys fs, badblocks_list *bb_list)
 	mke2fs_verbose("Running command: %s\n", buf);
 	f = popen(buf, "r");
 	if (!f) {
-		bb_perror_msg_and_die("cannot run '%s'", buf);
+		bb_perror_msg_and_die("can't run '%s'", buf);
 	}
 	retval = ext2fs_read_bb_FILE(fs, f, bb_list, invalid_block);
 	pclose(f);
@@ -676,7 +675,7 @@ static int set_os(struct ext2_super_block *sb, char *os)
 		return 1;
 	}
 
-	if((sb->s_creator_os = e2p_string2os(os)) >= 0) {
+	if ((sb->s_creator_os = e2p_string2os(os)) >= 0) {
 		return 1;
 	} else if (!strcasecmp("GNU", os)) {
 		sb->s_creator_os = EXT2_OS_HURD;
@@ -800,8 +799,8 @@ static int PRS(int argc, char **argv)
 	int		show_version_only = 0;
 	ext2_ino_t	num_inodes = 0;
 	errcode_t	retval;
-	char *		extended_opts = 0;
-	const char *	fs_type = 0;
+	char *		extended_opts = NULL;
+	const char *	fs_type = NULL;
 	blk_t		dev_size;
 	long		sysval;
 
@@ -1187,7 +1186,7 @@ int mke2fs_main (int argc, char **argv)
 
 	if (ENABLE_FEATURE_CLEAN_UP)
 		atexit(mke2fs_clean_up);
-	if(!PRS(argc, argv))
+	if (!PRS(argc, argv))
 		return 0;
 
 #ifdef CONFIG_TESTIO_DEBUG
@@ -1306,7 +1305,7 @@ int mke2fs_main (int argc, char **argv)
 			retval = zero_blocks(fs, start, blocks - start,
 					     NULL, &ret_blk, NULL);
 
-		mke2fs_warning_msg(retval, "cannot zero block %u at end of filesystem", ret_blk);
+		mke2fs_warning_msg(retval, "can't zero block %u at end of filesystem", ret_blk);
 		write_inode_tables(fs);
 		create_root_dir(fs);
 		create_lost_and_found(fs);

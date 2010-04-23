@@ -25,7 +25,6 @@
  * remove ridiculous amounts of bloat.
  */
 
-#include <getopt.h>
 #include <net/route.h>
 #include <net/if.h>
 
@@ -152,7 +151,7 @@ static int kw_lookup(const char *kwtbl, char ***pargs)
 
 /* Add or delete a route, depending on action. */
 
-static void INET_setroute(int action, char **args)
+static NOINLINE void INET_setroute(int action, char **args)
 {
 	struct rtentry rt;
 	const char *netmask = NULL;
@@ -303,7 +302,7 @@ static void INET_setroute(int action, char **args)
 
 	/* sanity checks.. */
 	if (mask_in_addr(rt)) {
-		unsigned long mask = mask_in_addr(rt);
+		uint32_t mask = mask_in_addr(rt);
 
 		mask = ~ntohl(mask);
 		if ((rt.rt_flags & RTF_HOST) && mask != 0xffffffff) {
@@ -314,7 +313,7 @@ static void INET_setroute(int action, char **args)
 			bb_error_msg_and_die("bogus netmask %s", netmask);
 		}
 		mask = ((struct sockaddr_in *) &rt.rt_dst)->sin_addr.s_addr;
-		if (mask & ~mask_in_addr(rt)) {
+		if (mask & ~(uint32_t)mask_in_addr(rt)) {
 			bb_error_msg_and_die("netmask and route address conflict");
 		}
 	}
@@ -337,7 +336,7 @@ static void INET_setroute(int action, char **args)
 
 #if ENABLE_FEATURE_IPV6
 
-static void INET6_setroute(int action, char **args)
+static NOINLINE void INET6_setroute(int action, char **args)
 {
 	struct sockaddr_in6 sa6;
 	struct in6_rtmsg rt;
@@ -424,7 +423,7 @@ static void INET6_setroute(int action, char **args)
 	if (devname) {
 		struct ifreq ifr;
 		memset(&ifr, 0, sizeof(ifr));
-		strncpy(ifr.ifr_name, devname, sizeof(ifr.ifr_name));
+		strncpy_IFNAMSIZ(ifr.ifr_name, devname);
 		xioctl(skfd, SIOGIFINDEX, &ifr);
 		rt.rtmsg_ifindex = ifr.ifr_ifindex;
 	}
@@ -477,7 +476,7 @@ static void set_flags(char *flagstr, int flags)
 }
 
 /* also used in netstat */
-void bb_displayroutes(int noresolve, int netstatfmt)
+void FAST_FUNC bb_displayroutes(int noresolve, int netstatfmt)
 {
 	char devname[64], flags[16], *sdest, *sgw;
 	unsigned long d, g, m;
@@ -485,7 +484,7 @@ void bb_displayroutes(int noresolve, int netstatfmt)
 	struct sockaddr_in s_addr;
 	struct in_addr mask;
 
-	FILE *fp = xfopen("/proc/net/route", "r");
+	FILE *fp = xfopen_for_read("/proc/net/route");
 
 	printf("Kernel IP routing table\n"
 	       "Destination     Gateway         Genmask         Flags %s Iface\n",
@@ -539,7 +538,7 @@ void bb_displayroutes(int noresolve, int netstatfmt)
 
 #if ENABLE_FEATURE_IPV6
 
-static void INET6_displayroutes(int noresolve)
+static void INET6_displayroutes(void)
 {
 	char addr6[128], *naddr6;
 	/* In addr6x, we store both 40-byte ':'-delimited ipv6 addresses.
@@ -553,7 +552,7 @@ static void INET6_displayroutes(int noresolve)
 	int iflags, metric, refcnt, use, prefix_len, slen;
 	struct sockaddr_in6 snaddr6;
 
-	FILE *fp = xfopen("/proc/net/ipv6_route", "r");
+	FILE *fp = xfopen_for_read("/proc/net/ipv6_route");
 
 	printf("Kernel IPv6 routing table\n%-44s%-40s"
 			  "Flags Metric Ref    Use Iface\n",
@@ -562,8 +561,8 @@ static void INET6_displayroutes(int noresolve)
 	while (1) {
 		int r;
 		r = fscanf(fp, "%32s%x%*s%x%32s%x%x%x%x%s\n",
-				   addr6x+14, &prefix_len, &slen, addr6x+40+7,
-				   &metric, &use, &refcnt, &iflags, iface);
+				addr6x+14, &prefix_len, &slen, addr6x+40+7,
+				&metric, &use, &refcnt, &iflags, iface);
 		if (r != 9) {
 			if ((r < 0) && feof(fp)) { /* EOF with no (nonspace) chars read. */
 				break;
@@ -642,7 +641,7 @@ static const char tbl_verb[] ALIGN1 =
 ;
 
 int route_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int route_main(int argc, char **argv)
+int route_main(int argc UNUSED_PARAM, char **argv)
 {
 	unsigned opt;
 	int what;
@@ -675,7 +674,7 @@ int route_main(int argc, char **argv)
 		int noresolve = (opt & ROUTE_OPT_n) ? 0x0fff : 0;
 #if ENABLE_FEATURE_IPV6
 		if (opt & ROUTE_OPT_INET6)
-			INET6_displayroutes(noresolve);
+			INET6_displayroutes();
 		else
 #endif
 			bb_displayroutes(noresolve, opt & ROUTE_OPT_e);

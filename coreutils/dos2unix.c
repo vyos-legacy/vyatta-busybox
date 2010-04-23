@@ -20,74 +20,63 @@ enum {
 };
 
 /* if fn is NULL then input is stdin and output is stdout */
-static int convert(char *fn, int conv_type)
+static void convert(char *fn, int conv_type)
 {
 	FILE *in, *out;
 	int i;
-#define name_buf bb_common_bufsiz1
+	char *temp_fn = temp_fn; /* for compiler */
+	char *resolved_fn = resolved_fn;
 
 	in = stdin;
 	out = stdout;
 	if (fn != NULL) {
-		in = xfopen(fn, "rw");
-		/*
-		   The file is then created with mode read/write and
-		   permissions 0666 for glibc 2.0.6 and earlier or
-		   0600 for glibc 2.0.7 and later.
-		 */
-		snprintf(name_buf, sizeof(name_buf), "%sXXXXXX", fn);
-		i = mkstemp(&name_buf[0]);
-		if (i == -1 || chmod(name_buf, 0600) == -1) {
-			bb_perror_nomsg_and_die();
+		struct stat st;
+
+		resolved_fn = xmalloc_follow_symlinks(fn);
+		if (resolved_fn == NULL)
+			bb_simple_perror_msg_and_die(fn);
+		in = xfopen_for_read(resolved_fn);
+		fstat(fileno(in), &st);
+
+		temp_fn = xasprintf("%sXXXXXX", resolved_fn);
+		i = mkstemp(temp_fn);
+		if (i == -1
+		 || fchmod(i, st.st_mode) == -1
+		) {
+			bb_simple_perror_msg_and_die(temp_fn);
 		}
-		out = fdopen(i, "w+");
-		if (!out) {
-			close(i);
-			remove(name_buf);
-			return -2;
-		}
+		out = xfdopen_for_write(i);
 	}
 
 	while ((i = fgetc(in)) != EOF) {
 		if (i == '\r')
 			continue;
-		if (i == '\n') {
+		if (i == '\n')
 			if (conv_type == CT_UNIX2DOS)
 				fputc('\r', out);
-			fputc('\n', out);
-			continue;
-		}
 		fputc(i, out);
 	}
 
 	if (fn != NULL) {
 		if (fclose(in) < 0 || fclose(out) < 0) {
-			bb_perror_nomsg();
-			remove(name_buf);
-			return -2;
+			unlink(temp_fn);
+			bb_perror_nomsg_and_die();
 		}
-		/* Assume they are both on the same filesystem (which
-		 * should be true since we put them into the same directory
-		 * so we _should_ be ok, but you never know... */
-		if (rename(name_buf, fn) < 0) {
-			bb_perror_msg("cannot rename '%s' as '%s'", name_buf, fn);
-			return -1;
-		}
+		xrename(temp_fn, resolved_fn);
+		free(temp_fn);
+		free(resolved_fn);
 	}
-
-	return 0;
 }
 
 int dos2unix_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int dos2unix_main(int argc, char **argv)
+int dos2unix_main(int argc UNUSED_PARAM, char **argv)
 {
 	int o, conv_type;
 
 	/* See if we are supposed to be doing dos2unix or unix2dos */
+	conv_type = CT_UNIX2DOS;
 	if (applet_name[0] == 'd') {
-		conv_type = CT_DOS2UNIX;	/* 2 */
-	} else {
-		conv_type = CT_UNIX2DOS;	/* 1 */
+		conv_type = CT_DOS2UNIX;
 	}
 
 	/* -u convert to unix, -d convert to dos */
@@ -99,13 +88,11 @@ int dos2unix_main(int argc, char **argv)
 	if (o)
 		conv_type = o;
 
+	argv += optind;
 	do {
 		/* might be convert(NULL) if there is no filename given */
-		o = convert(argv[optind], conv_type);
-		if (o < 0)
-			break;
-		optind++;
-	} while (optind < argc);
+		convert(*argv, conv_type);
+	} while (*++argv);
 
-	return o;
+	return 0;
 }

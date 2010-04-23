@@ -1,4 +1,3 @@
-#if ENABLE_FEATURE_OSF_LABEL
 /*
  * Copyright (c) 1987, 1988 Regents of the University of California.
  * All rights reserved.
@@ -32,6 +31,7 @@
  * SUCH DAMAGE.
  */
 
+#if ENABLE_FEATURE_OSF_LABEL
 
 #ifndef BSD_DISKMAGIC
 #define BSD_DISKMAGIC     ((uint32_t) 0x82564557)
@@ -45,18 +45,16 @@
 
 #if defined(i386) || defined(__sparc__) || defined(__arm__) \
  || defined(__m68k__) || defined(__mips__) || defined(__s390__) \
- || defined(__sh__) || defined(__x86_64__)
-#define BSD_LABELSECTOR   1
-#define BSD_LABELOFFSET   0
+ || defined(__s390__) || defined(__s390x__) \
+ || defined(__sh__) || defined(__x86_64__) || defined(__avr32__)
+# define BSD_LABELSECTOR   1
+# define BSD_LABELOFFSET   0
 #elif defined(__alpha__) || defined(__powerpc__) || defined(__ia64__) \
  || defined(__hppa__)
-#define BSD_LABELSECTOR   0
-#define BSD_LABELOFFSET   64
-#elif defined(__s390__) || defined(__s390x__)
-#define BSD_LABELSECTOR   1
-#define BSD_LABELOFFSET   0
+# define BSD_LABELSECTOR   0
+# define BSD_LABELOFFSET   64
 #else
-#error unknown architecture
+# error unknown architecture
 #endif
 
 #define BSD_BBSIZE        8192          /* size of boot area, with label */
@@ -67,8 +65,8 @@ struct xbsd_disklabel {
 	int16_t    d_type;                 /* drive type */
 	int16_t    d_subtype;              /* controller/d_type specific */
 	char       d_typename[16];         /* type name, e.g. "eagle" */
-	char       d_packname[16];                 /* pack identifier */
-			/* disk geometry: */
+	char       d_packname[16];         /* pack identifier */
+	/* disk geometry: */
 	uint32_t   d_secsize;              /* # of bytes per sector */
 	uint32_t   d_nsectors;             /* # of data sectors per track */
 	uint32_t   d_ntracks;              /* # of tracks per cylinder */
@@ -89,7 +87,7 @@ struct xbsd_disklabel {
 	 */
 	uint32_t   d_acylinders;           /* # of alt. cylinders per unit */
 
-			/* hardware characteristics: */
+	/* hardware characteristics: */
 	/*
 	 * d_interleave, d_trackskew and d_cylskew describe perturbations
 	 * in the media format used to compensate for a slow controller.
@@ -119,11 +117,11 @@ struct xbsd_disklabel {
 	uint32_t   d_spare[NSPARE];        /* reserved for future use */
 	uint32_t   d_magic2;               /* the magic number (again) */
 	uint16_t   d_checksum;             /* xor of data incl. partitions */
-			/* filesystem and partition information: */
+	/* filesystem and partition information: */
 	uint16_t   d_npartitions;          /* number of partitions in following */
 	uint32_t   d_bbsize;               /* size of boot area at sn0, bytes */
 	uint32_t   d_sbsize;               /* max size of fs superblock, bytes */
-	struct xbsd_partition    {      /* the partition table */
+	struct xbsd_partition { /* the partition table */
 		uint32_t   p_size;         /* number of sectors in partition */
 		uint32_t   p_offset;       /* starting sector */
 		uint32_t   p_fsize;        /* filesystem basic fragment size */
@@ -369,7 +367,7 @@ bsd_select(void)
 					partname(disk_device, t+1, 0));
 				return;
 			}
-				printf("Reading disklabel of %s at sector %d\n",
+				printf("Reading disklabel of %s at sector %u\n",
 					partname(disk_device, t+1, 0), ss + BSD_LABELSECTOR);
 			if (xbsd_readlabel(xbsd_part) == 0)
 				if (xbsd_create_disklabel() == 0)
@@ -413,7 +411,8 @@ bsd_select(void)
 			xbsd_print_disklabel(0);
 			break;
 		case 'q':
-			close(fd);
+			if (ENABLE_FEATURE_CLEAN_UP)
+				close_dev_fd();
 			exit(EXIT_SUCCESS);
 		case 'r':
 			return;
@@ -501,6 +500,8 @@ xbsd_print_disklabel(int show_all)
 	int i, j;
 
 	if (show_all) {
+		static const int d_masks[] = { BSD_D_REMOVABLE, BSD_D_ECC, BSD_D_BADSECT };
+
 #if defined(__alpha__)
 		printf("# %s:\n", disk_device);
 #else
@@ -509,31 +510,26 @@ xbsd_print_disklabel(int show_all)
 		if ((unsigned) lp->d_type < ARRAY_SIZE(xbsd_dktypenames)-1)
 			printf("type: %s\n", xbsd_dktypenames[lp->d_type]);
 		else
-			printf("type: %d\n", lp->d_type);
+			printf("type: %u\n", lp->d_type);
 		printf("disk: %.*s\n", (int) sizeof(lp->d_typename), lp->d_typename);
 		printf("label: %.*s\n", (int) sizeof(lp->d_packname), lp->d_packname);
-		printf("flags:");
-		if (lp->d_flags & BSD_D_REMOVABLE)
-			printf(" removable");
-		if (lp->d_flags & BSD_D_ECC)
-			printf(" ecc");
-		if (lp->d_flags & BSD_D_BADSECT)
-			printf(" badsect");
+		printf("flags: ");
+		print_flags_separated(d_masks, "removable\0""ecc\0""badsect\0", lp->d_flags, " ");
 		bb_putchar('\n');
 		/* On various machines the fields of *lp are short/int/long */
 		/* In order to avoid problems, we cast them all to long. */
-		printf("bytes/sector: %ld\n", (long) lp->d_secsize);
-		printf("sectors/track: %ld\n", (long) lp->d_nsectors);
-		printf("tracks/cylinder: %ld\n", (long) lp->d_ntracks);
-		printf("sectors/cylinder: %ld\n", (long) lp->d_secpercyl);
-		printf("cylinders: %ld\n", (long) lp->d_ncylinders);
-		printf("rpm: %d\n", lp->d_rpm);
-		printf("interleave: %d\n", lp->d_interleave);
-		printf("trackskew: %d\n", lp->d_trackskew);
-		printf("cylinderskew: %d\n", lp->d_cylskew);
-		printf("headswitch: %ld\t\t# milliseconds\n",
+		printf("bytes/sector: %lu\n", (long) lp->d_secsize);
+		printf("sectors/track: %lu\n", (long) lp->d_nsectors);
+		printf("tracks/cylinder: %lu\n", (long) lp->d_ntracks);
+		printf("sectors/cylinder: %lu\n", (long) lp->d_secpercyl);
+		printf("cylinders: %lu\n", (long) lp->d_ncylinders);
+		printf("rpm: %u\n", lp->d_rpm);
+		printf("interleave: %u\n", lp->d_interleave);
+		printf("trackskew: %u\n", lp->d_trackskew);
+		printf("cylinderskew: %u\n", lp->d_cylskew);
+		printf("headswitch: %lu\t\t# milliseconds\n",
 			(long) lp->d_headswitch);
-		printf("track-to-track seek: %ld\t# milliseconds\n",
+		printf("track-to-track seek: %lu\t# milliseconds\n",
 			(long) lp->d_trkseek);
 		printf("drivedata: ");
 		for (i = NDDATA - 1; i >= 0; i--)
@@ -542,25 +538,25 @@ xbsd_print_disklabel(int show_all)
 		if (i < 0)
 			i = 0;
 		for (j = 0; j <= i; j++)
-			printf("%ld ", (long) lp->d_drivedata[j]);
+			printf("%lu ", (long) lp->d_drivedata[j]);
 	}
-	printf("\n%d partitions:\n", lp->d_npartitions);
+	printf("\n%u partitions:\n", lp->d_npartitions);
 	printf("#       start       end      size     fstype   [fsize bsize   cpg]\n");
 	pp = lp->d_partitions;
 	for (i = 0; i < lp->d_npartitions; i++, pp++) {
 		if (pp->p_size) {
 			if (display_in_cyl_units && lp->d_secpercyl) {
-				printf("  %c: %8ld%c %8ld%c %8ld%c  ",
+				printf("  %c: %8lu%c %8lu%c %8lu%c  ",
 					'a' + i,
-					(long) pp->p_offset / lp->d_secpercyl + 1,
+					(unsigned long) pp->p_offset / lp->d_secpercyl + 1,
 					(pp->p_offset % lp->d_secpercyl) ? '*' : ' ',
-					(long) (pp->p_offset + pp->p_size + lp->d_secpercyl - 1) / lp->d_secpercyl,
+					(unsigned long) (pp->p_offset + pp->p_size + lp->d_secpercyl - 1) / lp->d_secpercyl,
 					((pp->p_offset + pp->p_size) % lp->d_secpercyl) ? '*' : ' ',
 					(long) pp->p_size / lp->d_secpercyl,
 					(pp->p_size % lp->d_secpercyl) ? '*' : ' '
 				);
 			} else {
-				printf("  %c: %8ld  %8ld  %8ld   ",
+				printf("  %c: %8lu  %8lu  %8lu   ",
 					'a' + i,
 					(long) pp->p_offset,
 					(long) pp->p_offset + pp->p_size - 1,
@@ -575,11 +571,11 @@ xbsd_print_disklabel(int show_all)
 
 			switch (pp->p_fstype) {
 			case BSD_FS_UNUSED:
-				printf("    %5ld %5ld %5.5s ",
+				printf("    %5lu %5lu %5.5s ",
 					(long) pp->p_fsize, (long) pp->p_fsize * pp->p_frag, "");
 				break;
 			case BSD_FS_BSDFFS:
-				printf("    %5ld %5ld %5d ",
+				printf("    %5lu %5lu %5u ",
 					(long) pp->p_fsize, (long) pp->p_fsize * pp->p_frag, pp->p_cpg);
 				break;
 			default:
@@ -619,7 +615,7 @@ xbsd_create_disklabel(void)
 
 	while (1) {
 		c = read_nonempty("Do you want to create a disklabel? (y/n) ");
-		if (c == 'y' || c == 'Y') {
+		if ((c|0x20) == 'y') {
 			if (xbsd_initlabel(
 #if defined(__alpha__) || defined(__powerpc__) || defined(__hppa__) || \
 	defined(__s390__) || defined(__s390x__)
@@ -627,12 +623,13 @@ xbsd_create_disklabel(void)
 #else
 				xbsd_part
 #endif
-				) == 1) {
+			) == 1) {
 				xbsd_print_disklabel(1);
 				return 1;
-			} else
-				return 0;
-		} else if (c == 'n')
+			}
+			return 0;
+		}
+		if ((c|0x20) == 'n')
 			return 0;
 	}
 }
@@ -640,7 +637,7 @@ xbsd_create_disklabel(void)
 static int
 edit_int(int def, const char *mesg)
 {
-	mesg = xasprintf("%s (%d): ", mesg, def);
+	mesg = xasprintf("%s (%u): ", mesg, def);
 	do {
 		if (!read_line(mesg))
 			goto ret;
@@ -689,13 +686,12 @@ xbsd_get_bootstrap(char *path, void *ptr, int size)
 {
 	int fdb;
 
-	fdb = open(path, O_RDONLY);
+	fdb = open_or_warn(path, O_RDONLY);
 	if (fdb < 0) {
-		perror(path);
 		return 0;
 	}
-	if (read(fdb, ptr, size) < 0) {
-		perror(path);
+	if (full_read(fdb, ptr, size) < 0) {
+		bb_simple_perror_msg(path);
 		close(fdb);
 		return 0;
 	}
@@ -766,10 +762,8 @@ xbsd_write_bootstrap(void)
 	sector = get_start_sect(xbsd_part);
 #endif
 
-	if (lseek(fd, sector * SECTOR_SIZE, SEEK_SET) == -1)
-		fdisk_fatal(unable_to_seek);
-	if (BSD_BBSIZE != write(fd, disklabelbuffer, BSD_BBSIZE))
-		fdisk_fatal(unable_to_write);
+	seek_sector(sector);
+	xwrite(dev_fd, disklabelbuffer, BSD_BBSIZE);
 
 #if defined(__alpha__)
 	printf("Bootstrap installed on %s\n", disk_device);
@@ -939,9 +933,8 @@ xbsd_readlabel(struct partition *p)
 	sector = 0;
 #endif
 
-	if (lseek(fd, sector * SECTOR_SIZE, SEEK_SET) == -1)
-		fdisk_fatal(unable_to_seek);
-	if (BSD_BBSIZE != read(fd, disklabelbuffer, BSD_BBSIZE))
+	seek_sector(sector);
+	if (BSD_BBSIZE != full_read(dev_fd, disklabelbuffer, BSD_BBSIZE))
 		fdisk_fatal(unable_to_read);
 
 	memmove(d, &disklabelbuffer[BSD_LABELSECTOR * SECTOR_SIZE + BSD_LABELOFFSET],
@@ -957,7 +950,7 @@ xbsd_readlabel(struct partition *p)
 	}
 
 	if (d->d_npartitions > BSD_MAXPARTITIONS)
-		printf("Warning: too many partitions (%d, maximum is %d)\n",
+		printf("Warning: too many partitions (%u, maximum is %u)\n",
 			d->d_npartitions, BSD_MAXPARTITIONS);
 	return 1;
 }
@@ -971,6 +964,7 @@ xbsd_writelabel(struct partition *p)
 #if !defined(__alpha__) && !defined(__powerpc__) && !defined(__hppa__)
 	sector = get_start_sect(p) + BSD_LABELSECTOR;
 #else
+	(void)p; /* silence warning */
 	sector = BSD_LABELSECTOR;
 #endif
 
@@ -985,15 +979,12 @@ xbsd_writelabel(struct partition *p)
 
 #if defined(__alpha__) && BSD_LABELSECTOR == 0
 	alpha_bootblock_checksum(disklabelbuffer);
-	if (lseek(fd, 0, SEEK_SET) == -1)
-		fdisk_fatal(unable_to_seek);
-	if (BSD_BBSIZE != write(fd, disklabelbuffer, BSD_BBSIZE))
-		fdisk_fatal(unable_to_write);
+	seek_sector(0);
+	xwrite(dev_fd, disklabelbuffer, BSD_BBSIZE);
 #else
-	if (lseek(fd, sector * SECTOR_SIZE + BSD_LABELOFFSET, SEEK_SET) == -1)
-		fdisk_fatal(unable_to_seek);
-	if (sizeof(struct xbsd_disklabel) != write(fd, d, sizeof(struct xbsd_disklabel)))
-		fdisk_fatal(unable_to_write);
+	seek_sector(sector);
+	lseek(dev_fd, BSD_LABELOFFSET, SEEK_CUR);
+	xwrite(dev_fd, d, sizeof(*d));
 #endif
 	sync_disks();
 	return 1;

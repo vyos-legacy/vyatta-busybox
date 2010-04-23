@@ -1,7 +1,8 @@
 /* vi: set sw=4 ts=4: */
-/* fdformat.c  -  Low-level formats a floppy disk - Werner Almesberger */
-
-/* 5 July 2003 -- modified for Busybox by Erik Andersen
+/* fdformat.c  -  Low-level formats a floppy disk - Werner Almesberger
+ * 5 July 2003 -- modified for Busybox by Erik Andersen
+ *
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 #include "libbb.h"
@@ -41,7 +42,7 @@ struct format_descr {
 #define FD_FILL_BYTE 0xF6 /* format fill byte. */
 
 int fdformat_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int fdformat_main(int argc, char **argv)
+int fdformat_main(int argc UNUSED_PARAM, char **argv)
 {
 	int fd, n, cyl, read_bytes, verify;
 	unsigned char *data;
@@ -49,9 +50,7 @@ int fdformat_main(int argc, char **argv)
 	struct floppy_struct param;
 	struct format_descr descr;
 
-	if (argc < 2) {
-		bb_show_usage();
-	}
+	opt_complementary = "=1"; /* must have 1 param */
 	verify = !getopt32(argv, "n");
 	argv += optind;
 

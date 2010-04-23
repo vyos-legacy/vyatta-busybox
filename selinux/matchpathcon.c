@@ -3,6 +3,7 @@
  *                  based on libselinux-1.32
  * Port to busybox: KaiGai Kohei <kaigai@kaigai.gr.jp>
  *
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 #include "libbb.h"
 
@@ -30,7 +31,7 @@ static int print_matchpathcon(char *path, int noprint)
 #define OPT_VERIFY      (1<<4)  /* -V */
 
 int matchpathcon_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int matchpathcon_main(int argc, char **argv)
+int matchpathcon_main(int argc UNUSED_PARAM, char **argv)
 {
 	int error = 0;
 	unsigned opts;

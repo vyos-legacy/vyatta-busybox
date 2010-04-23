@@ -49,6 +49,10 @@ void new_string(void)
 void append_string(const char *str, int size)
 {
 	int new_size = text_size + size + 1;
+	if (size > 70) {
+	        fprintf (stderr, "%s:%d error: Overlong line\n",
+			 current_file->name, current_file->lineno);
+	}
 	if (new_size > text_asize) {
 		new_size += START_STRSIZE - 1;
 		new_size &= -START_STRSIZE;
@@ -261,13 +265,14 @@ static void zconf_endhelp(void)
  */
 FILE *zconf_fopen(const char *name)
 {
-	char *env, fullname[PATH_MAX+1];
+	char *env;
 	FILE *f;
 
 	f = fopen(name, "r");
 	if (!f && name[0] != '/') {
 		env = getenv(SRCTREE);
 		if (env) {
+			char *fullname = alloca(strlen(env) + strlen(name) + 2);
 			sprintf(fullname, "%s/%s", env, name);
 			f = fopen(fullname, "r");
 		}

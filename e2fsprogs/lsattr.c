@@ -45,10 +45,10 @@ static void list_attributes(const char *name)
 
 	if (option_mask32 & OPT_PF_LONG) {
 		printf("%-28s ", name);
-		print_flags(stdout, fsflags, PFOPT_LONG);
+		print_e2flags(stdout, fsflags, PFOPT_LONG);
 		bb_putchar('\n');
 	} else {
-		print_flags(stdout, fsflags, 0);
+		print_e2flags(stdout, fsflags, 0);
 		printf(" %s\n", name);
 	}
 
@@ -57,8 +57,9 @@ static void list_attributes(const char *name)
 	bb_perror_msg("reading %s", name);
 }
 
-static int lsattr_dir_proc(const char *dir_name, struct dirent *de,
-			   void *private)
+static int FAST_FUNC lsattr_dir_proc(const char *dir_name,
+		struct dirent *de,
+		void *private UNUSED_PARAM)
 {
 	struct stat st;
 	char *path;
@@ -96,16 +97,14 @@ static void lsattr_args(const char *name)
 }
 
 int lsattr_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int lsattr_main(int argc, char **argv)
+int lsattr_main(int argc UNUSED_PARAM, char **argv)
 {
 	getopt32(argv, "Radlv");
 	argv += optind;
 
 	if (!*argv)
-		lsattr_args(".");
-	else {
-		do lsattr_args(*argv++); while (*argv);
-	}
+		*--argv = (char*)".";
+	do lsattr_args(*argv++); while (*argv);
 
 	return EXIT_SUCCESS;
 }

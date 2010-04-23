@@ -28,15 +28,16 @@ int open_to_or_warn(int to_fd, const char *filename, int flags, int mode)
 	return 0;
 }
 
-int bbunpack(char **argv,
+int FAST_FUNC bbunpack(char **argv,
 	char* (*make_new_name)(char *filename),
-	USE_DESKTOP(long long) int (*unpacker)(void)
+	IF_DESKTOP(long long) int (*unpacker)(unpack_info_t *info)
 )
 {
 	struct stat stat_buf;
-	USE_DESKTOP(long long) int status;
+	IF_DESKTOP(long long) int status;
 	char *filename, *new_name;
 	smallint exitcode = 0;
+	unpack_info_t info;
 
 	do {
 		/* NB: new_name is *maybe* malloc'ed! */
@@ -73,6 +74,12 @@ int bbunpack(char **argv,
 				bb_error_msg("%s: unknown suffix - ignored", filename);
 				goto err;
 			}
+
+			/* -f: overwrite existing output files */
+			if (option_mask32 & OPT_FORCE) {
+				unlink(new_name);
+			}
+
 			/* O_EXCL: "real" bunzip2 doesn't overwrite files */
 			/* GNU gunzip does not bail out, but goes to next file */
 			if (open_to_or_warn(STDOUT_FILENO, new_name, O_WRONLY | O_CREAT | O_EXCL,
@@ -86,14 +93,29 @@ int bbunpack(char **argv,
 					"use -f to force it");
 		}
 
-		status = unpacker();
+		/* memset(&info, 0, sizeof(info)); */
+		info.mtime = 0; /* so far it has one member only */
+		status = unpacker(&info);
 		if (status < 0)
 			exitcode = 1;
+		xclose(STDOUT_FILENO); /* with error check! */
 
 		if (filename) {
 			char *del = new_name;
 			if (status >= 0) {
-				/* TODO: restore user/group/times here? */
+				/* TODO: restore other things? */
+				if (info.mtime) {
+					struct timeval times[2];
+
+					times[1].tv_sec = times[0].tv_sec = info.mtime;
+					times[1].tv_usec = times[0].tv_usec = 0;
+					/* Note: we closed it first.
+					 * On some systems calling utimes
+					 * then closing resets the mtime
+					 * back to current time. */
+					utimes(new_name, times); /* ignoring errors */
+				}
+
 				/* Delete _compressed_ file */
 				del = filename;
 				/* restore extension (unless tgz -> tar case) */
@@ -153,13 +175,13 @@ char* make_new_name_bunzip2(char *filename)
 }
 
 static
-USE_DESKTOP(long long) int unpack_bunzip2(void)
+IF_DESKTOP(long long) int unpack_bunzip2(unpack_info_t *info UNUSED_PARAM)
 {
-	return unpack_bz2_stream(STDIN_FILENO, STDOUT_FILENO);
+	return unpack_bz2_stream_prime(STDIN_FILENO, STDOUT_FILENO);
 }
 
 int bunzip2_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int bunzip2_main(int argc, char **argv)
+int bunzip2_main(int argc UNUSED_PARAM, char **argv)
 {
 	getopt32(argv, "cfvdt");
 	argv += optind;
@@ -212,8 +234,8 @@ char* make_new_name_gunzip(char *filename)
 
 	extension++;
 	if (strcmp(extension, "tgz" + 1) == 0
-#if ENABLE_FEATURE_GUNZIP_UNCOMPRESS
-	 || strcmp(extension, "Z") == 0
+#if ENABLE_FEATURE_SEAMLESS_Z
+	 || (extension[0] == 'Z' && extension[1] == '\0')
 #endif
 	) {
 		extension[-1] = '\0';
@@ -229,19 +251,19 @@ char* make_new_name_gunzip(char *filename)
 }
 
 static
-USE_DESKTOP(long long) int unpack_gunzip(void)
+IF_DESKTOP(long long) int unpack_gunzip(unpack_info_t *info)
 {
-	USE_DESKTOP(long long) int status = -1;
+	IF_DESKTOP(long long) int status = -1;
 
 	/* do the decompression, and cleanup */
 	if (xread_char(STDIN_FILENO) == 0x1f) {
 		unsigned char magic2;
 
 		magic2 = xread_char(STDIN_FILENO);
-		if (ENABLE_FEATURE_GUNZIP_UNCOMPRESS && magic2 == 0x9d) {
-			status = uncompress(STDIN_FILENO, STDOUT_FILENO);
+		if (ENABLE_FEATURE_SEAMLESS_Z && magic2 == 0x9d) {
+			status = unpack_Z_stream(STDIN_FILENO, STDOUT_FILENO);
 		} else if (magic2 == 0x8b) {
-			status = unpack_gz_stream(STDIN_FILENO, STDOUT_FILENO);
+			status = unpack_gz_stream_with_info(STDIN_FILENO, STDOUT_FILENO, info);
 		} else {
 			goto bad_magic;
 		}
@@ -256,10 +278,24 @@ USE_DESKTOP(long long) int unpack_gunzip(void)
 	return status;
 }
 
+/*
+ * Linux kernel build uses gzip -d -n. We accept and ignore it.
+ * Man page says:
+ * -n --no-name
+ * gzip: do not save the original file name and time stamp.
+ * (The original name is always saved if the name had to be truncated.)
+ * gunzip: do not restore the original file name/time even if present
+ * (remove only the gzip suffix from the compressed file name).
+ * This option is the default when decompressing.
+ * -N --name
+ * gzip: always save the original file name and time stamp (this is the default)
+ * gunzip: restore the original file name and time stamp if present.
+ */
+
 int gunzip_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int gunzip_main(int argc, char **argv)
+int gunzip_main(int argc UNUSED_PARAM, char **argv)
 {
-	getopt32(argv, "cfvdt");
+	getopt32(argv, "cfvdtn");
 	argv += optind;
 	/* if called as zcat */
 	if (applet_name[1] == 'c')
@@ -289,13 +325,13 @@ char* make_new_name_unlzma(char *filename)
 }
 
 static
-USE_DESKTOP(long long) int unpack_unlzma(void)
+IF_DESKTOP(long long) int unpack_unlzma(unpack_info_t *info UNUSED_PARAM)
 {
 	return unpack_lzma_stream(STDIN_FILENO, STDOUT_FILENO);
 }
 
 int unlzma_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int unlzma_main(int argc, char **argv)
+int unlzma_main(int argc UNUSED_PARAM, char **argv)
 {
 	getopt32(argv, "cf");
 	argv += optind;
@@ -324,20 +360,20 @@ char* make_new_name_uncompress(char *filename)
 }
 
 static
-USE_DESKTOP(long long) int unpack_uncompress(void)
+IF_DESKTOP(long long) int unpack_uncompress(unpack_info_t *info UNUSED_PARAM)
 {
-	USE_DESKTOP(long long) int status = -1;
+	IF_DESKTOP(long long) int status = -1;
 
 	if ((xread_char(STDIN_FILENO) != 0x1f) || (xread_char(STDIN_FILENO) != 0x9d)) {
 		bb_error_msg("invalid magic");
 	} else {
-		status = uncompress(STDIN_FILENO, STDOUT_FILENO);
+		status = unpack_Z_stream(STDIN_FILENO, STDOUT_FILENO);
 	}
 	return status;
 }
 
 int uncompress_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int uncompress_main(int argc, char **argv)
+int uncompress_main(int argc UNUSED_PARAM, char **argv)
 {
 	getopt32(argv, "cf");
 	argv += optind;

@@ -5,13 +5,13 @@
  *
  * Heavily modified by Manuel Novoa III       Mar 12, 2001
  *
- *
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 #include "libbb.h"
 #include "inet_common.h"
 
-int INET_resolve(const char *name, struct sockaddr_in *s_in, int hostfirst)
+int FAST_FUNC INET_resolve(const char *name, struct sockaddr_in *s_in, int hostfirst)
 {
 	struct hostent *hp;
 #if ENABLE_FEATURE_ETC_NETWORKS
@@ -63,9 +63,6 @@ int INET_resolve(const char *name, struct sockaddr_in *s_in, int hostfirst)
 #ifdef DEBUG
 	res_init();
 	_res.options |= RES_DEBUG;
-#endif
-
-#ifdef DEBUG
 	bb_error_msg("gethostbyname(%s)", name);
 #endif
 	hp = gethostbyname(name);
@@ -81,7 +78,7 @@ int INET_resolve(const char *name, struct sockaddr_in *s_in, int hostfirst)
  *          & 0x4000: host instead of net,
  *          & 0x0fff: don't resolve
  */
-char *INET_rresolve(struct sockaddr_in *s_in, int numeric, uint32_t netmask)
+char* FAST_FUNC INET_rresolve(struct sockaddr_in *s_in, int numeric, uint32_t netmask)
 {
 	/* addr-to-name cache */
 	struct addr {
@@ -97,7 +94,6 @@ char *INET_rresolve(struct sockaddr_in *s_in, int numeric, uint32_t netmask)
 	uint32_t ad, host_ad;
 	int host = 0;
 
-	/* Grmpf. -FvK */
 	if (s_in->sin_family != AF_INET) {
 #ifdef DEBUG
 		bb_error_msg("rresolve: unsupported address family %d!",
@@ -166,7 +162,7 @@ char *INET_rresolve(struct sockaddr_in *s_in, int numeric, uint32_t netmask)
 
 #if ENABLE_FEATURE_IPV6
 
-int INET6_resolve(const char *name, struct sockaddr_in6 *sin6)
+int FAST_FUNC INET6_resolve(const char *name, struct sockaddr_in6 *sin6)
 {
 	struct addrinfo req, *ai;
 	int s;
@@ -190,15 +186,14 @@ int INET6_resolve(const char *name, struct sockaddr_in6 *sin6)
 #endif
 
 
-char *INET6_rresolve(struct sockaddr_in6 *sin6, int numeric)
+char* FAST_FUNC INET6_rresolve(struct sockaddr_in6 *sin6, int numeric)
 {
 	char name[128];
 	int s;
 
-	/* Grmpf. -FvK */
 	if (sin6->sin6_family != AF_INET6) {
 #ifdef DEBUG
-		bb_error_msg("rresolve: unsupport address family %d!",
+		bb_error_msg("rresolve: unsupported address family %d!",
 				  sin6->sin6_family);
 #endif
 		errno = EAFNOSUPPORT;
@@ -223,4 +218,4 @@ char *INET6_rresolve(struct sockaddr_in6 *sin6, int numeric)
 	return xstrdup(name);
 }
 
-#endif							/* CONFIG_FEATURE_IPV6 */
+#endif		/* CONFIG_FEATURE_IPV6 */

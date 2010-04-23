@@ -8,7 +8,6 @@
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
 
-#include <signal.h>  /* For FEATURE_DD_SIGNAL_HANDLING */
 #include "libbb.h"
 
 /* This is a NOEXEC applet. Be very careful! */
@@ -30,24 +29,57 @@ static const struct suffix_mult dd_suffixes[] = {
 	{ "M", 1048576 },
 	{ "GD", 1000000000 },
 	{ "G", 1073741824 },
-	{ }
+	{ "", 0 }
 };
 
 struct globals {
 	off_t out_full, out_part, in_full, in_part;
-};
+#if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
+	unsigned long long total_bytes;
+	unsigned long long begin_time_us;
+#endif
+} FIX_ALIASING;
 #define G (*(struct globals*)&bb_common_bufsiz1)
-/* We have to zero it out because of NOEXEC */
-#define INIT_G() memset(&G, 0, sizeof(G))
+#define INIT_G() do { \
+	/* we have to zero it out because of NOEXEC */ \
+	memset(&G, 0, sizeof(G)); \
+} while (0)
 
 
-static void dd_output_status(int ATTRIBUTE_UNUSED cur_signal)
+static void dd_output_status(int UNUSED_PARAM cur_signal)
 {
+#if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
+	double seconds;
+	unsigned long long bytes_sec;
+	unsigned long long now_us = monotonic_us(); /* before fprintf */
+#endif
+
 	/* Deliberately using %u, not %d */
 	fprintf(stderr, "%"OFF_FMT"u+%"OFF_FMT"u records in\n"
 			"%"OFF_FMT"u+%"OFF_FMT"u records out\n",
 			G.in_full, G.in_part,
 			G.out_full, G.out_part);
+
+#if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
+	fprintf(stderr, "%llu bytes (%sB) copied, ",
+			G.total_bytes,
+			/* show fractional digit, use suffixes */
+			make_human_readable_str(G.total_bytes, 1, 0)
+	);
+	/* Corner cases:
+	 * ./busybox dd </dev/null >/dev/null
+	 * ./busybox dd bs=1M count=2000 </dev/zero >/dev/null
+	 * (echo DONE) | ./busybox dd >/dev/null
+	 * (sleep 1; echo DONE) | ./busybox dd >/dev/null
+	 */
+	seconds = (now_us - G.begin_time_us) / 1000000.0;
+	bytes_sec = G.total_bytes / seconds;
+	fprintf(stderr, "%f seconds, %sB/s\n",
+			seconds,
+			/* show fractional digit, use suffixes */
+			make_human_readable_str(bytes_sec, 1, 0)
+	);
+#endif
 }
 
 static ssize_t full_write_or_warn(const void *buf, size_t len,
@@ -65,37 +97,48 @@ static bool write_and_stats(const void *buf, size_t len, size_t obs,
 	ssize_t n = full_write_or_warn(buf, len, filename);
 	if (n < 0)
 		return 1;
-	if (n == obs)
+	if ((size_t)n == obs)
 		G.out_full++;
 	else if (n) /* > 0 */
 		G.out_part++;
+#if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
+	G.total_bytes += n;
+#endif
 	return 0;
 }
 
 #if ENABLE_LFS
-#define XATOU_SFX xatoull_sfx
+# define XATOU_SFX xatoull_sfx
 #else
-#define XATOU_SFX xatoul_sfx
+# define XATOU_SFX xatoul_sfx
 #endif
 
 int dd_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int dd_main(int argc, char **argv)
+int dd_main(int argc UNUSED_PARAM, char **argv)
 {
 	enum {
-		FLAG_SYNC    = 1 << 0,
-		FLAG_NOERROR = 1 << 1,
-		FLAG_NOTRUNC = 1 << 2,
-		FLAG_TWOBUFS = 1 << 3,
-		FLAG_COUNT   = 1 << 4,
+		/* Must be in the same order as OP_conv_XXX! */
+		/* (see "flags |= (1 << what)" below) */
+		FLAG_NOTRUNC = 1 << 0,
+		FLAG_SYNC    = 1 << 1,
+		FLAG_NOERROR = 1 << 2,
+		FLAG_FSYNC   = 1 << 3,
+		/* end of conv flags */
+		FLAG_TWOBUFS = 1 << 4,
+		FLAG_COUNT   = 1 << 5,
 	};
 	static const char keywords[] ALIGN1 =
-		"bs=\0""count=\0""seek=\0""skip=\0""if=\0""of=\0"
+		"bs\0""count\0""seek\0""skip\0""if\0""of\0"
 #if ENABLE_FEATURE_DD_IBS_OBS
-		"ibs=\0""obs=\0""conv=\0""notrunc\0""sync\0""noerror\0"
+		"ibs\0""obs\0""conv\0"
 #endif
 		;
+#if ENABLE_FEATURE_DD_IBS_OBS
+	static const char conv_words[] ALIGN1 =
+		"notrunc\0""sync\0""noerror\0""fsync\0";
+#endif
 	enum {
-		OP_bs = 1,
+		OP_bs = 0,
 		OP_count,
 		OP_seek,
 		OP_skip,
@@ -105,9 +148,23 @@ int dd_main(int argc, char **argv)
 		OP_ibs,
 		OP_obs,
 		OP_conv,
-		OP_conv_notrunc,
+		/* Must be in the same order as FLAG_XXX! */
+		OP_conv_notrunc = 0,
 		OP_conv_sync,
 		OP_conv_noerror,
+		OP_conv_fsync,
+	/* Unimplemented conv=XXX: */
+	//nocreat       do not create the output file
+	//excl          fail if the output file already exists
+	//fdatasync     physically write output file data before finishing
+	//swab          swap every pair of input bytes
+	//lcase         change upper case to lower case
+	//ucase         change lower case to upper case
+	//block         pad newline-terminated records with spaces to cbs-size
+	//unblock       replace trailing spaces in cbs-size records with newline
+	//ascii         from EBCDIC to ASCII
+	//ebcdic        from ASCII to EBCDIC
+	//ibm           from ASCII to alternate EBCDIC
 #endif
 	};
 	int exitcode = EXIT_FAILURE;
@@ -121,9 +178,6 @@ int dd_main(int argc, char **argv)
 		off_t count;
 		off_t seek, skip;
 		const char *infile, *outfile;
-#if ENABLE_FEATURE_DD_SIGNAL_HANDLING
-		struct sigaction sigact;
-#endif
 	} Z;
 #define flags   (Z.flags  )
 #define oc      (Z.oc     )
@@ -132,104 +186,104 @@ int dd_main(int argc, char **argv)
 #define skip    (Z.skip   )
 #define infile  (Z.infile )
 #define outfile (Z.outfile)
-#define sigact  (Z.sigact )
 
 	memset(&Z, 0, sizeof(Z));
 	INIT_G();
-	//fflush(NULL); - is this needed because of NOEXEC?
+	//fflush_all(); - is this needed because of NOEXEC?
 
-#if ENABLE_FEATURE_DD_SIGNAL_HANDLING
-	sigact.sa_handler = dd_output_status;
-	sigact.sa_flags = SA_RESTART;
-	sigemptyset(&sigact.sa_mask);
-	sigaction(SIGUSR1, &sigact, NULL);
-#endif
-
-	for (n = 1; n < argc; n++) {
-		smalluint key_len;
-		smalluint what;
-		char *key;
+	for (n = 1; argv[n]; n++) {
+		int what;
+		char *val;
 		char *arg = argv[n];
 
-//XXX:FIXME: we reject plain "dd --" This would cost ~20 bytes, so..
-//if (*arg == '-' && *++arg == '-' && !*++arg) continue;
-		key = strstr(arg, "=");
-		if (key == NULL)
+#if ENABLE_DESKTOP
+		/* "dd --". NB: coreutils 6.9 will complain if they see
+		 * more than one of them. We wouldn't. */
+		if (arg[0] == '-' && arg[1] == '-' && arg[2] == '\0')
+			continue;
+#endif
+		val = strchr(arg, '=');
+		if (val == NULL)
 			bb_show_usage();
-		key_len = key - arg + 1;
-		key = xstrndup(arg, key_len);
-		what = index_in_strings(keywords, key) + 1;
-		if (ENABLE_FEATURE_CLEAN_UP)
-			free(key);
-		if (what == 0)
+		*val = '\0';
+		what = index_in_strings(keywords, arg);
+		if (what < 0)
 			bb_show_usage();
-		arg += key_len;
-		/* Must fit into positive ssize_t */
+		/* *val = '='; - to preserve ps listing? */
+		val++;
 #if ENABLE_FEATURE_DD_IBS_OBS
-			if (what == OP_ibs) {
-				ibs = xatoul_range_sfx(arg, 1, ((size_t)-1L)/2, dd_suffixes);
-				continue;
+		if (what == OP_ibs) {
+			/* Must fit into positive ssize_t */
+			ibs = xatoul_range_sfx(val, 1, ((size_t)-1L)/2, dd_suffixes);
+			/*continue;*/
+		}
+		if (what == OP_obs) {
+			obs = xatoul_range_sfx(val, 1, ((size_t)-1L)/2, dd_suffixes);
+			/*continue;*/
+		}
+		if (what == OP_conv) {
+			while (1) {
+				/* find ',', replace them with NUL so we can use val for
+				 * index_in_strings() without copying.
+				 * We rely on val being non-null, else strchr would fault.
+				 */
+				arg = strchr(val, ',');
+				if (arg)
+					*arg = '\0';
+				what = index_in_strings(conv_words, val);
+				if (what < 0)
+					bb_error_msg_and_die(bb_msg_invalid_arg, val, "conv");
+				flags |= (1 << what);
+				if (!arg) /* no ',' left, so this was the last specifier */
+					break;
+				/* *arg = ','; - to preserve ps listing? */
+				val = arg + 1; /* skip this keyword and ',' */
 			}
-			if (what == OP_obs) {
-				obs = xatoul_range_sfx(arg, 1, ((size_t)-1L)/2, dd_suffixes);
-				continue;
-			}
-			if (what == OP_conv) {
-				while (1) {
-					/* find ',', replace them with nil so we can use arg for
-					 * index_in_strings() without copying.
-					 * We rely on arg being non-null, else strchr would fault.
-					 */
-					key = strchr(arg, ',');
-					if (key)
-						*key = '\0';
-					what = index_in_strings(keywords, arg) + 1;
-					if (what < OP_conv_notrunc)
-						bb_error_msg_and_die(bb_msg_invalid_arg, arg, "conv");
-					if (what == OP_conv_notrunc)
-						flags |= FLAG_NOTRUNC;
-					if (what == OP_conv_sync)
-						flags |= FLAG_SYNC;
-					if (what == OP_conv_noerror)
-						flags |= FLAG_NOERROR;
-					if (!key) /* no ',' left, so this was the last specifier */
-						break;
-					arg = key + 1; /* skip this keyword and ',' */
-				}
-				continue;
-			}
+			continue; /* we trashed 'what', can't fall through */
+		}
 #endif
 		if (what == OP_bs) {
-			ibs = obs = xatoul_range_sfx(arg, 1, ((size_t)-1L)/2, dd_suffixes);
-			continue;
+			ibs = obs = xatoul_range_sfx(val, 1, ((size_t)-1L)/2, dd_suffixes);
+			/*continue;*/
 		}
 		/* These can be large: */
 		if (what == OP_count) {
 			flags |= FLAG_COUNT;
-			count = XATOU_SFX(arg, dd_suffixes);
-			continue;
+			count = XATOU_SFX(val, dd_suffixes);
+			/*continue;*/
 		}
 		if (what == OP_seek) {
-			seek = XATOU_SFX(arg, dd_suffixes);
-			continue;
+			seek = XATOU_SFX(val, dd_suffixes);
+			/*continue;*/
 		}
 		if (what == OP_skip) {
-			skip = XATOU_SFX(arg, dd_suffixes);
-			continue;
+			skip = XATOU_SFX(val, dd_suffixes);
+			/*continue;*/
 		}
 		if (what == OP_if) {
-			infile = arg;
-			continue;
+			infile = val;
+			/*continue;*/
 		}
-		if (what == OP_of)
-			outfile = arg;
-	}
+		if (what == OP_of) {
+			outfile = val;
+			/*continue;*/
+		}
+	} /* end of "for (argv[n])" */
+
 //XXX:FIXME for huge ibs or obs, malloc'ing them isn't the brightest idea ever
 	ibuf = obuf = xmalloc(ibs);
 	if (ibs != obs) {
 		flags |= FLAG_TWOBUFS;
 		obuf = xmalloc(obs);
 	}
+
+#if ENABLE_FEATURE_DD_SIGNAL_HANDLING
+	signal_SA_RESTART_empty_mask(SIGUSR1, dd_output_status);
+#endif
+#if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
+	G.begin_time_us = monotonic_us();
+#endif
+
 	if (infile != NULL)
 		xmove_fd(xopen(infile, O_RDONLY), ifd);
 	else {
@@ -247,9 +301,12 @@ int dd_main(int argc, char **argv)
 			if (ftruncate(ofd, seek * obs) < 0) {
 				struct stat st;
 
-				if (fstat(ofd, &st) < 0 || S_ISREG(st.st_mode) ||
-						S_ISDIR(st.st_mode))
+				if (fstat(ofd, &st) < 0
+				 || S_ISREG(st.st_mode)
+				 || S_ISDIR(st.st_mode)
+				) {
 					goto die_outfile;
+				}
 			}
 		}
 	} else {
@@ -272,23 +329,26 @@ int dd_main(int argc, char **argv)
 	}
 
 	while (!(flags & FLAG_COUNT) || (G.in_full + G.in_part != count)) {
-		if (flags & FLAG_NOERROR) /* Pre-zero the buffer if conv=noerror */
-			memset(ibuf, 0, ibs);
 		n = safe_read(ifd, ibuf, ibs);
 		if (n == 0)
 			break;
 		if (n < 0) {
+			/* "Bad block" */
 			if (!(flags & FLAG_NOERROR))
 				goto die_infile;
-			n = ibs;
 			bb_simple_perror_msg(infile);
+			/* GNU dd with conv=noerror skips over bad blocks */
+			xlseek(ifd, ibs, SEEK_CUR);
+			/* conv=noerror,sync writes NULs,
+			 * conv=noerror just ignores input bad blocks */
+			n = 0;
 		}
 		if ((size_t)n == ibs)
 			G.in_full++;
 		else {
 			G.in_part++;
 			if (flags & FLAG_SYNC) {
-				memset(ibuf + n, '\0', ibs - n);
+				memset(ibuf + n, 0, ibs - n);
 				n = ibs;
 			}
 		}
@@ -297,7 +357,7 @@ int dd_main(int argc, char **argv)
 			while (n) {
 				size_t d = obs - oc;
 
-				if (d > n)
+				if (d > (size_t)n)
 					d = n;
 				memcpy(obuf + oc, tmp, d);
 				n -= d;
@@ -311,13 +371,17 @@ int dd_main(int argc, char **argv)
 			}
 		} else if (write_and_stats(ibuf, n, obs, outfile))
 			goto out_status;
+
+		if (flags & FLAG_FSYNC) {
+			if (fsync(ofd) < 0)
+				goto die_outfile;
+		}
 	}
 
 	if (ENABLE_FEATURE_DD_IBS_OBS && oc) {
 		w = full_write_or_warn(obuf, oc, outfile);
 		if (w < 0) goto out_status;
-		if (w > 0)
-			G.out_part++;
+		if (w > 0) G.out_part++;
 	}
 	if (close(ifd) < 0) {
  die_infile:

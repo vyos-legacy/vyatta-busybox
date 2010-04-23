@@ -7,8 +7,6 @@
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
 
-#include <getopt.h>
-
 #include "libbb.h"
 
 int losetup_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
@@ -20,7 +18,7 @@ int losetup_main(int argc, char **argv)
 	char *s;
 	unsigned long long offset = 0;
 
-	/* max 2 args, all opts are mutially exclusive */
+	/* max 2 args, all opts are mutually exclusive */
 	opt_complementary = "?2:d--of:o--df:f-do";
 	opt = getopt32(argv, "do:f", &opt_o);
 	argc -= optind;

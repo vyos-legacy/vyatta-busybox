@@ -38,34 +38,62 @@ execXXX("/proc/self/exe", applet_name, params....)
 and therefore comm field contains "exe".
 */
 
-/* find_pid_by_name()
+static int comm_match(procps_status_t *p, const char *procName)
+{
+	int argv1idx;
+	const char *argv1;
+
+	if (strncmp(p->comm, procName, 15) != 0)
+		return 0; /* comm does not match */
+
+	/* In Linux, if comm is 15 chars, it is truncated.
+	 * (or maybe the name was exactly 15 chars, but there is
+	 * no way to know that) */
+	if (p->comm[14] == '\0')
+		return 1; /* comm is not truncated - matches */
+
+	/* comm is truncated, but first 15 chars match.
+	 * This can be crazily_long_script_name.sh!
+	 * The telltale sign is basename(argv[1]) == procName */
+
+	if (!p->argv0)
+		return 0;
+
+	argv1idx = strlen(p->argv0) + 1;
+	if (argv1idx >= p->argv_len)
+		return 0;
+	argv1 = p->argv0 + argv1idx;
+
+	if (strcmp(bb_basename(argv1), procName) != 0)
+		return 0;
+
+	return 1;
+}
+
+/* This finds the pid of the specified process.
+ * Currently, it's implemented by rummaging through
+ * the proc filesystem.
  *
- *  Modified by Vladimir Oleynik for use with libbb/procps.c
- *  This finds the pid of the specified process.
- *  Currently, it's implemented by rummaging through
- *  the proc filesystem.
+ * Returns a list of all matching PIDs
+ * It is the caller's duty to free the returned pidlist.
  *
- *  Returns a list of all matching PIDs
- *  It is the caller's duty to free the returned pidlist.
+ * Modified by Vladimir Oleynik for use with libbb/procps.c
  */
-pid_t* find_pid_by_name(const char* procName)
+pid_t* FAST_FUNC find_pid_by_name(const char *procName)
 {
 	pid_t* pidList;
 	int i = 0;
 	procps_status_t* p = NULL;
 
-	pidList = xmalloc(sizeof(*pidList));
-	while ((p = procps_scan(p, PSSCAN_PID|PSSCAN_COMM|PSSCAN_ARGV0))) {
-		if (
-		/* we require comm to match and to not be truncated */
-		/* in Linux, if comm is 15 chars, it may be a truncated
-		 * name, so we don't allow that to match */
-		    (!p->comm[sizeof(p->comm)-2] && strcmp(p->comm, procName) == 0)
+	pidList = xzalloc(sizeof(*pidList));
+	while ((p = procps_scan(p, PSSCAN_PID|PSSCAN_COMM|PSSCAN_ARGVN|PSSCAN_EXE))) {
+		if (comm_match(p, procName)
 		/* or we require argv0 to match (essential for matching reexeced /proc/self/exe)*/
 		 || (p->argv0 && strcmp(bb_basename(p->argv0), procName) == 0)
-		/* TOOD: we can also try /proc/NUM/exe link, do we want that? */
+		/* or we require /proc/PID/exe link to match */
+		 || (p->exe && strcmp(bb_basename(p->exe), procName) == 0)
 		) {
-			pidList = xrealloc(pidList, sizeof(*pidList) * (i+2));
+			pidList = xrealloc_vector(pidList, 2, i);
 			pidList[i++] = p->pid;
 		}
 	}
@@ -74,7 +102,7 @@ pid_t* find_pid_by_name(const char* procName)
 	return pidList;
 }
 
-pid_t *pidlist_reverse(pid_t *pidList)
+pid_t* FAST_FUNC pidlist_reverse(pid_t *pidList)
 {
 	int i = 0;
 	while (pidList[i])

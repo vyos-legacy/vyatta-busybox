@@ -21,8 +21,7 @@ static blkid_tag blkid_new_tag(void)
 {
 	blkid_tag tag;
 
-	if (!(tag = (blkid_tag) calloc(1, sizeof(struct blkid_struct_tag))))
-		return NULL;
+	tag = xzalloc(sizeof(struct blkid_struct_tag));
 
 	INIT_LIST_HEAD(&tag->bit_tags);
 	INIT_LIST_HEAD(&tag->bit_names);
@@ -113,7 +112,7 @@ int blkid_set_tag(blkid_dev dev, const char *name,
 		  const char *value, const int vlength)
 {
 	blkid_tag	t = 0, head = 0;
-	char		*val = 0;
+	char		*val = NULL;
 
 	if (!dev || !name)
 		return -BLKID_ERR_PARAM;

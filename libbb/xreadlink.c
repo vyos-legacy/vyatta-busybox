@@ -1,7 +1,9 @@
 /* vi: set sw=4 ts=4: */
 /*
- *  xreadlink.c - safe implementation of readlink.
- *  Returns a NULL on failure...
+ * xreadlink.c - safe implementation of readlink.
+ * Returns a NULL on failure...
+ *
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 #include "libbb.h"
@@ -10,7 +12,7 @@
  * NOTE: This function returns a malloced char* that you will have to free
  * yourself.
  */
-char *xmalloc_readlink(const char *path)
+char* FAST_FUNC xmalloc_readlink(const char *path)
 {
 	enum { GROWBY = 80 }; /* how large we will grow strings by */
 
@@ -42,7 +44,7 @@ char *xmalloc_readlink(const char *path)
  * those at the tail.
  * A malloced char* is returned, which must be freed by the caller.
  */
-char *xmalloc_follow_symlinks(const char *path)
+char* FAST_FUNC xmalloc_follow_symlinks(const char *path)
 {
 	char *buf;
 	char *lpc;
@@ -54,7 +56,6 @@ char *xmalloc_follow_symlinks(const char *path)
 	goto jump_in;
 
 	while (1) {
-
 		linkpath = xmalloc_readlink(buf);
 		if (!linkpath) {
 			/* not a symlink, or doesn't exist */
@@ -85,28 +86,30 @@ char *xmalloc_follow_symlinks(const char *path)
 	}
 }
 
-char *xmalloc_readlink_or_warn(const char *path)
+char* FAST_FUNC xmalloc_readlink_or_warn(const char *path)
 {
 	char *buf = xmalloc_readlink(path);
 	if (!buf) {
 		/* EINVAL => "file: Invalid argument" => puzzled user */
-		bb_error_msg("%s: cannot read link (not a symlink?)", path);
+		const char *errmsg = "not a symlink";
+		int err = errno;
+		if (err != EINVAL)
+			errmsg = strerror(err);
+		bb_error_msg("%s: cannot read link: %s", path, errmsg);
 	}
 	return buf;
 }
 
-/* UNUSED */
-#if 0
-char *xmalloc_realpath(const char *path)
+char* FAST_FUNC xmalloc_realpath(const char *path)
 {
 #if defined(__GLIBC__) && !defined(__UCLIBC__)
 	/* glibc provides a non-standard extension */
+	/* new: POSIX.1-2008 specifies this behavior as well */
 	return realpath(path, NULL);
 #else
 	char buf[PATH_MAX+1];
 
-	/* on error returns NULL (xstrdup(NULL) ==NULL) */
+	/* on error returns NULL (xstrdup(NULL) == NULL) */
 	return xstrdup(realpath(path, buf));
 #endif
 }
-#endif

@@ -12,20 +12,19 @@
 #include "libbb.h"
 
 int setlogcons_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int setlogcons_main(int argc, char **argv)
+int setlogcons_main(int argc UNUSED_PARAM, char **argv)
 {
 	struct {
 		char fn;
 		char subarg;
-	} arg;
+	} arg = { 11, /* redirect kernel messages */
+			  0   /* to specified console (current as default) */
+			};
 
-	arg.fn = 11;    /* redirect kernel messages */
-	arg.subarg = 0; /* to specified console (current as default) */
-
-	if (argc == 2)
-		arg.subarg = xatoul_range(argv[1], 0, 63);
+	if (argv[1])
+		arg.subarg = xatou_range(argv[1], 0, 63);
 
 	xioctl(xopen(VC_1, O_RDONLY), TIOCLINUX, &arg);
 
-	return 0;
+	return EXIT_SUCCESS;
 }

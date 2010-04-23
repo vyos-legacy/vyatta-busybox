@@ -121,9 +121,9 @@ static const char signals[][7] = {
 
 // Convert signal name to number.
 
-int get_signum(const char *name)
+int FAST_FUNC get_signum(const char *name)
 {
-	int i;
+	unsigned i;
 
 	i = bb_strtou(name, NULL, 10);
 	if (!errno)
@@ -155,7 +155,7 @@ int get_signum(const char *name)
 
 // Convert signal number to name
 
-const char *get_signame(int number)
+const char* FAST_FUNC get_signame(int number)
 {
 	if ((unsigned)number < ARRAY_SIZE(signals)) {
 		if (signals[number][0]) /* if it's not an empty str */
@@ -168,9 +168,9 @@ const char *get_signame(int number)
 
 // Print the whole signal list
 
-void print_signames(void)
+void FAST_FUNC print_signames(void)
 {
-	int signo;
+	unsigned signo;
 
 	for (signo = 1; signo < ARRAY_SIZE(signals); signo++) {
 		const char *name = signals[signo];

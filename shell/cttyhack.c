@@ -38,7 +38,7 @@ struct serial_struct {
 };
 
 int cttyhack_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int cttyhack_main(int argc, char **argv)
+int cttyhack_main(int argc UNUSED_PARAM, char **argv)
 {
 	int fd;
 	char console[sizeof(int)*3 + 16];
@@ -73,5 +73,5 @@ int cttyhack_main(int argc, char **argv)
 	}
 
 	BB_EXECVP(argv[0], argv);
-	bb_perror_msg_and_die("cannot exec '%s'", argv[0]);
+	bb_perror_msg_and_die("can't execute '%s'", argv[0]);
 }

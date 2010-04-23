@@ -15,6 +15,7 @@ choice
 config FEATURE_SH_IS_ASH
 	select ASH
 	bool "ash"
+	depends on !NOMMU
 
 config FEATURE_SH_IS_HUSH
 	select HUSH
@@ -24,9 +25,9 @@ config FEATURE_SH_IS_HUSH
 ####	select LASH
 ####	bool "lash"
 
-config FEATURE_SH_IS_MSH
-	select MSH
-	bool "msh"
+####config FEATURE_SH_IS_MSH
+####	select MSH
+####	bool "msh"
 
 config FEATURE_SH_IS_NONE
 	bool "none"
@@ -36,16 +37,20 @@ endchoice
 config ASH
 	bool "ash"
 	default n
-	select TEST
+	depends on !NOMMU
 	help
 	  Tha 'ash' shell adds about 60k in the default configuration and is
 	  the most complete and most pedantically correct shell included with
-	  busybox.  This shell is actually a derivative of the Debian 'dash'
+	  busybox. This shell is actually a derivative of the Debian 'dash'
 	  shell (by Herbert Xu), which was created by porting the 'ash' shell
 	  (written by Kenneth Almquist) from NetBSD.
 
-comment "Ash Shell Options"
+config ASH_BASH_COMPAT
+	bool "bash-compatible extensions"
+	default y
 	depends on ASH
+	help
+	  Enable bash-compatible extensions.
 
 config ASH_JOB_CONTROL
 	bool "Job control"
@@ -54,45 +59,12 @@ config ASH_JOB_CONTROL
 	help
 	  Enable job control in the ash shell.
 
-config ASH_READ_NCHARS
-	bool "'read -n N' and 'read -s' support"
-	default n
-	depends on ASH
-	help
-	  'read -n N' will return a value after N characters have been read.
-	  'read -s' will read without echoing the user's input.
-
-config ASH_READ_TIMEOUT
-	bool "'read -t S' support."
-	default n
-	depends on ASH
-	help
-	  'read -t S' will return a value after S seconds have passed.
-	  This implementation will allow fractional seconds, expressed
-	  as a decimal fraction, e.g. 'read -t 2.5 foo'.
-
 config ASH_ALIAS
 	bool "alias support"
 	default y
 	depends on ASH
 	help
 	  Enable alias support in the ash shell.
-
-config ASH_MATH_SUPPORT
-	bool "Posix math support"
-	default y
-	depends on ASH
-	help
-	  Enable math support in the ash shell.
-
-config ASH_MATH_SUPPORT_64
-	bool "Extend Posix math support to 64 bit"
-	default n
-	depends on ASH_MATH_SUPPORT
-	help
-	  Enable 64-bit math support in the ash shell.  This will make
-	  the shell slightly larger, but will allow computation with very
-	  large numbers.
 
 config ASH_GETOPTS
 	bool "Builtin getopt to parse positional parameters"
@@ -104,15 +76,20 @@ config ASH_GETOPTS
 config ASH_BUILTIN_ECHO
 	bool "Builtin version of 'echo'"
 	default y
-	select ECHO
 	depends on ASH
 	help
 	  Enable support for echo, builtin to ash.
 
+config ASH_BUILTIN_PRINTF
+	bool "Builtin version of 'printf'"
+	default y
+	depends on ASH
+	help
+	  Enable support for printf, builtin to ash.
+
 config ASH_BUILTIN_TEST
 	bool "Builtin version of 'test'"
 	default y
-	select TEST
 	depends on ASH
 	help
 	  Enable support for test, builtin to ash.
@@ -141,14 +118,14 @@ config ASH_OPTIMIZE_FOR_SIZE
 	  Compile ash for reduced size at the price of speed.
 
 config ASH_RANDOM_SUPPORT
-	bool "Pseudorandom generator and variable $RANDOM"
+	bool "Pseudorandom generator and $RANDOM variable"
 	default n
 	depends on ASH
 	help
 	  Enable pseudorandom generator and dynamic variable "$RANDOM".
 	  Each read of "$RANDOM" will generate a new pseudorandom value.
 	  You can reset the generator by using a specified start value.
-	  After "unset RANDOM" then generator will switch off and this
+	  After "unset RANDOM" the generator will switch off and this
 	  variable will no longer have special treatment.
 
 config ASH_EXPAND_PRMT
@@ -156,26 +133,30 @@ config ASH_EXPAND_PRMT
 	default n
 	depends on ASH
 	help
-	  "PS#" may be contain volatile content, such as backquote commands.
+	  "PS#" may contain volatile content, such as backquote commands.
 	  This option recreates the prompt string from the environment
 	  variable each time it is displayed.
 
 config HUSH
 	bool "hush"
 	default n
-	select TRUE
-	select FALSE
-	select TEST
-	select ECHO
 	help
-	  hush is a very small shell (just 18k) and it has fairly complete
-	  Bourne shell grammar.  It even handles all the normal flow control
-	  options such as if/then/elif/else/fi, for/in/do/done, while loops,
-	  etc.
+	  hush is a small shell (22k). It handles the normal flow control
+	  constructs such as if/then/elif/else/fi, for/in/do/done, while loops,
+	  case/esac. Redirections, here documents, $((arithmetic))
+	  and functions are supported.
 
-	  It does not handle case/esac, select, function, here documents ( <<
-	  word ), arithmetic expansion, aliases, brace expansion, tilde
-	  expansion, &> and >& redirection of stdout+stderr, etc.
+	  It will compile and work on no-mmu systems.
+
+	  It does not handle select, aliases, brace expansion,
+	  tilde expansion, &>file and >&file redirection of stdout+stderr.
+
+config HUSH_BASH_COMPAT
+	bool "bash-compatible extensions"
+	default y
+	depends on HUSH
+	help
+	  Enable bash-compatible extensions.
 
 config HUSH_HELP
 	bool "help builtin"
@@ -191,7 +172,7 @@ config HUSH_INTERACTIVE
 	help
 	  Enable interactive mode (prompt and command editing).
 	  Without this, hush simply reads and executes commands
-	  from stdin just like a shell script from the file.
+	  from stdin just like a shell script from a file.
 	  No prompt, no PS1/PS2 magic shell variables.
 
 config HUSH_JOB
@@ -226,30 +207,80 @@ config HUSH_LOOPS
 	help
 	  Enable for, while and until loops in hush.
 
+config HUSH_CASE
+	bool "Support case ... esac statement"
+	default n
+	depends on HUSH
+	help
+	  Enable case ... esac statement in hush. +400 bytes.
+
+config HUSH_FUNCTIONS
+	bool "Support funcname() { commands; } syntax"
+	default n
+	depends on HUSH
+	help
+	  Enable support for shell functions in hush. +800 bytes.
+
+config HUSH_LOCAL
+	bool "Support local builtin"
+	default n
+	depends on HUSH_FUNCTIONS
+	help
+	  Enable support for local variables in functions.
+
+config HUSH_EXPORT_N
+	bool "Support export '-n' option"
+	default n
+	depends on HUSH
+	help
+	  Enable support for export '-n' option in hush. It is a bash extension.
+
+config HUSH_RANDOM_SUPPORT
+	bool "Pseudorandom generator and $RANDOM variable"
+	default n
+	depends on HUSH
+	help
+	  Enable pseudorandom generator and dynamic variable "$RANDOM".
+	  Each read of "$RANDOM" will generate a new pseudorandom value.
+
 config LASH
-	bool "lash"
+	bool "lash (deprecated: aliased to hush)"
 	default n
 	select HUSH
 	help
 	  lash is deprecated and will be removed, please migrate to hush.
 
-
 config MSH
-	bool "msh"
+	bool "msh (deprecated: please use hush)"
 	default n
-	select TRUE
-	select FALSE
-	select TEST
+	select HUSH
 	help
-	  The minix shell (adds just 30k) is quite complete and handles things
-	  like for/do/done, case/esac and all the things you expect a Bourne
-	  shell to do.  It is not always pedantically correct about Bourne
-	  shell grammar (try running the shell testscript "tests/sh.testcases"
-	  on it and compare vs bash) but for most things it works quite well.
-	  It also uses only vfork, so it can be used on uClinux systems.
+	  msh is deprecated and will be removed, please migrate to hush.
+	  If there is a feature msh has but hush does not, please let us know.
 
-comment "Bourne Shell Options"
-	depends on MSH || LASH || HUSH || ASH
+#	  The minix shell (adds just 30k) is quite complete and handles things
+#	  like for/do/done, case/esac and all the things you expect a Bourne
+#	  shell to do. It is not always pedantically correct about Bourne
+#	  shell grammar (try running the shell testscript "tests/sh.testcases"
+#	  on it and compare vs bash) but for most things it works quite well.
+#	  It uses only vfork, so it can be used on uClinux systems.
+
+
+config SH_MATH_SUPPORT
+	bool "POSIX math support"
+	default y
+	depends on ASH || HUSH
+	help
+	  Enable math support in the shell via $((...)) syntax.
+
+config SH_MATH_SUPPORT_64
+	bool "Extend POSIX math support to 64 bit"
+	default n
+	depends on SH_MATH_SUPPORT
+	help
+	  Enable 64-bit math support in the shell. This will make the shell
+	  slightly larger, but will allow computation with very large numbers.
+	  This is not in POSIX, so do not rely on this in portable code.
 
 config FEATURE_SH_EXTRA_QUIET
 	bool "Hide message on interactive shell startup"
@@ -264,11 +295,11 @@ config FEATURE_SH_STANDALONE
 	depends on (MSH || LASH || HUSH || ASH) && FEATURE_PREFER_APPLETS
 	help
 	  This option causes busybox shells to use busybox applets
-	  in preference to executables in the PATH whenever possible.  For
+	  in preference to executables in the PATH whenever possible. For
 	  example, entering the command 'ifconfig' into the shell would cause
-	  busybox to use the ifconfig busybox applet.  Specifying the fully
+	  busybox to use the ifconfig busybox applet. Specifying the fully
 	  qualified executable name, such as '/sbin/ifconfig' will still
-	  execute the /sbin/ifconfig executable on the filesystem.  This option
+	  execute the /sbin/ifconfig executable on the filesystem. This option
 	  is generally used when creating a statically linked version of busybox
 	  for use as a rescue shell, in the event that you screw up your system.
 
@@ -282,14 +313,31 @@ config FEATURE_SH_STANDALONE
 	  started this way).
 # untrue?
 #	  Note that this will *also* cause applets to take precedence
-#	  over shell builtins of the same name.  So turning this on will
+#	  over shell builtins of the same name. So turning this on will
 #	  eliminate any performance gained by turning on the builtin "echo"
 #	  and "test" commands in ash.
 # untrue?
 #	  Note that when using this option, the shell will attempt to directly
-#	  run '/bin/busybox'.  If you do not have the busybox binary sitting in
+#	  run '/bin/busybox'. If you do not have the busybox binary sitting in
 #	  that exact location with that exact name, this option will not work at
 #	  all.
+
+config FEATURE_SH_NOFORK
+	bool "Run 'nofork' applets directly"
+	default n
+	depends on (MSH || LASH || HUSH || ASH) && FEATURE_PREFER_APPLETS
+	help
+	  This option causes busybox shells [currently only ash]
+	  to not execute typical fork/exec/wait sequence, but call <applet>_main
+	  directly, if possible. (Sometimes it is not possible: for example,
+	  this is not possible in pipes).
+
+	  This will be done only for some applets (those which are marked
+	  NOFORK in include/applets.h).
+
+	  This may significantly speed up some shell scripts.
+
+	  This feature is relatively new. Use with care.
 
 config CTTYHACK
 	bool "cttyhack"

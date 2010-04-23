@@ -17,7 +17,7 @@
 
 /* Written by Jim Meyering.  */
 
-/* Busyboxed by Denis Vlasenko
+/* Busyboxed by Denys Vlasenko
 
 Based on od.c from coreutils-5.2.1
 Top bloat sources:
@@ -50,7 +50,6 @@ diff -u -a std bbox >bbox.diff || { echo Different!; sleep 1; }
 */
 
 #include "libbb.h"
-#include <getopt.h>
 
 #define assert(a) ((void)0)
 
@@ -188,7 +187,7 @@ static off_t pseudo_offset;
    a multiple of the least common multiple of the sizes associated with
    the specified output types.  It should be as large as possible, but
    no larger than 16 -- unless specified with the -w option.  */
-static size_t bytes_per_block;
+static unsigned bytes_per_block = 32; /* have to use unsigned, not size_t */
 
 /* A NULL-terminated list of the file-arguments from the command line.  */
 static const char *const *file_list;
@@ -360,12 +359,12 @@ print_long_double(size_t n_bytes, const char *block, const char *fmt_string)
 }
 
 /* print_[named]_ascii are optimized for speed.
- * Remember, someday you may want to pump gigabytes thru this thing.
+ * Remember, someday you may want to pump gigabytes through this thing.
  * Saving a dozen of .text bytes here is counter-productive */
 
 static void
 print_named_ascii(size_t n_bytes, const char *block,
-		const char *unused_fmt_string ATTRIBUTE_UNUSED)
+		const char *unused_fmt_string UNUSED_PARAM)
 {
 	/* Names for some non-printing characters.  */
 	static const char charname[33][3] ALIGN1 = {
@@ -405,7 +404,7 @@ print_named_ascii(size_t n_bytes, const char *block,
 
 static void
 print_ascii(size_t n_bytes, const char *block,
-		const char *unused_fmt_string ATTRIBUTE_UNUSED)
+		const char *unused_fmt_string UNUSED_PARAM)
 {
 	// buf[N] pos:  01234 56789
 	char buf[12] = "   x\0 0xx\0";
@@ -509,10 +508,10 @@ check_and_close(void)
 }
 
 /* If S points to a single valid modern od format string, put
-   a description of that format in *TSPEC, make *NEXT point at the
-   character following the just-decoded format (if *NEXT is non-NULL),
-   and return zero.  For example, if S were "d4afL"
-   *NEXT would be set to "afL" and *TSPEC would be
+   a description of that format in *TSPEC, return pointer to
+   character following the just-decoded format.
+   For example, if S were "d4afL", we will return a rtp to "afL"
+   and *TSPEC would be
 	{
 		fmt = SIGNED_DECIMAL;
 		size = INT or LONG; (whichever integral_type_size[4] resolves to)
@@ -522,9 +521,8 @@ check_and_close(void)
    S_ORIG is solely for reporting errors.  It should be the full format
    string argument. */
 
-static void
-decode_one_format(const char *s_orig, const char *s, const char **next,
-					   struct tspec *tspec)
+static const char *
+decode_one_format(const char *s_orig, const char *s, struct tspec *tspec)
 {
 	enum size_spec size_spec;
 	unsigned size;
@@ -537,7 +535,6 @@ decode_one_format(const char *s_orig, const char *s, const char **next,
 	unsigned field_width = 0;
 	int pos;
 
-	assert(tspec != NULL);
 
 	switch (*s) {
 	case 'd':
@@ -548,7 +545,8 @@ decode_one_format(const char *s_orig, const char *s, const char **next,
 
 		c = *s++;
 		p = strchr(CSIL, *s);
-		if (!p) {
+		/* if *s == NUL, p != NULL! Testcase: "od -tx" */
+		if (!p || *p == '\0') {
 			size = sizeof(int);
 			if (isdigit(s[0])) {
 				size = bb_strtou(s, &end, 0);
@@ -563,13 +561,14 @@ decode_one_format(const char *s_orig, const char *s, const char **next,
 				s = end;
 			}
 		} else {
-			static const uint8_t CSIL_sizeof[] = {
+			static const uint8_t CSIL_sizeof[4] = {
 				sizeof(char),
 				sizeof(short),
 				sizeof(int),
 				sizeof(long),
 			};
 			size = CSIL_sizeof[p - CSIL];
+			s++; /* skip C/S/I/L */
 		}
 
 #define ISPEC_TO_FORMAT(Spec, Min_format, Long_format, Max_format) \
@@ -717,13 +716,12 @@ decode_one_format(const char *s_orig, const char *s, const char **next,
 	if (tspec->hexl_mode_trailer)
 		s++;
 
-	if (next != NULL)
-		*next = s;
+	return s;
 }
 
 /* Decode the modern od format string S.  Append the decoded
    representation to the global array SPEC, reallocating SPEC if
-   necessary.  Return zero if S is valid, nonzero otherwise.  */
+   necessary.  */
 
 static void
 decode_format_string(const char *s)
@@ -734,13 +732,13 @@ decode_format_string(const char *s)
 		struct tspec tspec;
 		const char *next;
 
-		decode_one_format(s_orig, s, &next, &tspec);
+		next = decode_one_format(s_orig, s, &tspec);
 
 		assert(s != next);
 		s = next;
+		spec = xrealloc_vector(spec, 4, n_specs);
+		memcpy(&spec[n_specs], &tspec, sizeof(spec[0]));
 		n_specs++;
-		spec = xrealloc(spec, n_specs * sizeof(*spec));
-		memcpy(&spec[n_specs-1], &tspec, sizeof *spec);
 	}
 }
 
@@ -776,18 +774,18 @@ skip(off_t n_skip)
 			   as large as the size of the current file, we can
 			   decrement n_skip and go on to the next file.  */
 		if (fstat(fileno(in_stream), &file_stats) == 0
-		 && S_ISREG(file_stats.st_mode) && file_stats.st_size >= 0
+		 && S_ISREG(file_stats.st_mode) && file_stats.st_size > 0
 		) {
 			if (file_stats.st_size < n_skip) {
 				n_skip -= file_stats.st_size;
-				/* take check&close / open_next route */
+				/* take "check & close / open_next" route */
 			} else {
 				if (fseeko(in_stream, n_skip, SEEK_CUR) != 0)
 					ioerror = 1;
 				return;
 			}
 		} else {
-			/* If it's not a regular file with nonnegative size,
+			/* If it's not a regular file with positive size,
 			   position the file pointer by reading.  */
 			char buf[1024];
 			size_t n_bytes_to_read = 1024;
@@ -810,14 +808,14 @@ skip(off_t n_skip)
 	}
 
 	if (n_skip)
-		bb_error_msg_and_die("cannot skip past end of combined input");
+		bb_error_msg_and_die("can't skip past end of combined input");
 }
 
 
 typedef void FN_format_address(off_t address, char c);
 
 static void
-format_address_none(off_t address ATTRIBUTE_UNUSED, char c ATTRIBUTE_UNUSED)
+format_address_none(off_t address UNUSED_PARAM, char c UNUSED_PARAM)
 {
 }
 
@@ -835,7 +833,7 @@ format_address_std(off_t address, char c)
 	printf(address_fmt, address);
 }
 
-#if ENABLE_GETOPT_LONG
+#if ENABLE_LONG_OPTS
 /* only used with --traditional */
 static void
 format_address_paren(off_t address, char c)
@@ -956,7 +954,7 @@ get_lcm(void)
 	return l_c_m;
 }
 
-#if ENABLE_GETOPT_LONG
+#if ENABLE_LONG_OPTS
 /* If S is a valid traditional offset specification with an optional
    leading '+' return nonzero and set *OFFSET to the offset it denotes.  */
 
@@ -966,7 +964,7 @@ parse_old_offset(const char *s, off_t *offset)
 	static const struct suffix_mult Bb[] = {
 		{ "B", 1024 },
 		{ "b", 512 },
-		{ }
+		{ "", 0 }
 	};
 	char *p;
 	int radix;
@@ -1000,9 +998,7 @@ parse_old_offset(const char *s, off_t *offset)
    spec, extend the input block with zero bytes until its length is a
    multiple of all format spec sizes.  Write the final block.  Finally,
    write on a line by itself the offset of the byte after the last byte
-   read.  Accumulate return values from calls to read_block and
-   check_and_close, and if any was nonzero, return nonzero.
-   Otherwise, return zero.  */
+   read.  */
 
 static void
 dump(off_t current_offset, off_t end_offset)
@@ -1078,8 +1074,7 @@ dump(off_t current_offset, off_t end_offset)
    and INPUT_FILENAME so they correspond to the next file in the list.
    Then try to read a byte from the newly opened file.  Repeat if
    necessary until EOF is reached for the last file in FILE_LIST, then
-   set *C to EOF and return.  Subsequent calls do likewise.  The return
-   value is nonzero if any errors occured, zero otherwise.  */
+   set *C to EOF and return.  Subsequent calls do likewise.  */
 
 static void
 read_char(int *c)
@@ -1112,8 +1107,7 @@ read_char(int *c)
    A string constant is a run of at least 'string_min' ASCII
    graphic (or formatting) characters terminated by a null.
    Based on a function written by Richard Stallman for a
-   traditional version of od.  Return nonzero if an error
-   occurs.  Otherwise, return zero.  */
+   traditional version of od.  */
 
 static void
 dump_strings(off_t address, off_t end_offset)
@@ -1181,12 +1175,11 @@ dump_strings(off_t address, off_t end_offset)
 int od_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int od_main(int argc, char **argv)
 {
-	static char const *const default_file_list[] = { "-", NULL };
 	static const struct suffix_mult bkm[] = {
 		{ "b", 512 },
 		{ "k", 1024 },
 		{ "m", 1024*1024 },
-		{ }
+		{ "", 0 }
 	};
 	enum {
 		OPT_A = 1 << 0,
@@ -1207,9 +1200,9 @@ int od_main(int argc, char **argv)
 		OPT_s = 1 << 15,
 		OPT_S = 1 << 16,
 		OPT_w = 1 << 17,
-		OPT_traditional = (1 << 18) * ENABLE_GETOPT_LONG,
+		OPT_traditional = (1 << 18) * ENABLE_LONG_OPTS,
 	};
-#if ENABLE_GETOPT_LONG
+#if ENABLE_LONG_OPTS
 	static const char od_longopts[] ALIGN1 =
 		"skip-bytes\0"        Required_argument "j"
 		"address-radix\0"     Required_argument "A"
@@ -1222,7 +1215,6 @@ int od_main(int argc, char **argv)
 		;
 #endif
 	char *str_A, *str_N, *str_j, *str_S;
-	char *str_w = NULL;
 	llist_t *lst_t = NULL;
 	unsigned opt;
 	int l_c_m;
@@ -1243,8 +1235,8 @@ int od_main(int argc, char **argv)
 	/* flag_dump_strings = 0; - already is */
 
 	/* Parse command line */
-	opt_complementary = "t::"; // list
-#if ENABLE_GETOPT_LONG
+	opt_complementary = "w+:t::"; /* -w N, -t is a list */
+#if ENABLE_LONG_OPTS
 	applet_long_options = od_longopts;
 #endif
 	opt = getopt32(argv, "A:N:abcdfhij:lot:vxsS:"
@@ -1252,7 +1244,7 @@ int od_main(int argc, char **argv)
 		// -S was -s and also had optional parameter
 		// but in coreutils 6.3 it was renamed and now has
 		// _mandatory_ parameter
-		&str_A, &str_N, &str_j, &lst_t, &str_S, &str_w);
+		&str_A, &str_N, &str_j, &lst_t, &str_S, &bytes_per_block);
 	argc -= optind;
 	argv += optind;
 	if (opt & OPT_A) {
@@ -1290,8 +1282,7 @@ int od_main(int argc, char **argv)
 	if (opt & OPT_o) decode_format_string("o2");
 	//if (opt & OPT_t)...
 	while (lst_t) {
-		decode_format_string(lst_t->data);
-		lst_t = lst_t->link;
+		decode_format_string(llist_pop(&lst_t));
 	}
 	if (opt & OPT_v) verbose = 1;
 	if (opt & OPT_x) decode_format_string("x2");
@@ -1316,7 +1307,7 @@ int od_main(int argc, char **argv)
 	 * FIXME: POSIX 1003.1-2001 with XSI requires support for the
 	 * traditional syntax even if --traditional is not given.  */
 
-#if ENABLE_GETOPT_LONG
+#if ENABLE_LONG_OPTS
 	if (opt & OPT_traditional) {
 		off_t o1, o2;
 
@@ -1388,7 +1379,7 @@ int od_main(int argc, char **argv)
 	/* If no files were listed on the command line,
 	   set the global pointer FILE_LIST so that it
 	   references the null-terminated list of one name: "-".  */
-	file_list = default_file_list;
+	file_list = bb_argv_dash;
 	if (argc > 0) {
 		/* Set the global pointer FILE_LIST so that it
 		   references the first file-argument on the command-line.  */
@@ -1408,12 +1399,9 @@ int od_main(int argc, char **argv)
 	l_c_m = get_lcm();
 
 	if (opt & OPT_w) { /* -w: width */
-		bytes_per_block = 32;
-		if (str_w)
-			bytes_per_block = xatou(str_w);
 		if (!bytes_per_block || bytes_per_block % l_c_m != 0) {
-			bb_error_msg("warning: invalid width %zu; using %d instead",
-					bytes_per_block, l_c_m);
+			bb_error_msg("warning: invalid width %u; using %d instead",
+					(unsigned)bytes_per_block, l_c_m);
 			bytes_per_block = l_c_m;
 		}
 	} else {

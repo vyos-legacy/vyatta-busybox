@@ -22,8 +22,10 @@
  * is so stinking huge.
  */
 
-static int true_action(const char *fileName, struct stat *statbuf,
-						void* userData, int depth)
+static int FAST_FUNC true_action(const char *fileName UNUSED_PARAM,
+		struct stat *statbuf UNUSED_PARAM,
+		void* userData UNUSED_PARAM,
+		int depth UNUSED_PARAM)
 {
 	return TRUE;
 }
@@ -32,23 +34,34 @@ static int true_action(const char *fileName, struct stat *statbuf,
  * recursive_action() return 0, but it doesn't stop directory traversal
  * (fileAction/dirAction will be called on each file).
  *
- * if !depthFirst, dirAction return value of 0 (FALSE) or 2 (SKIP)
- * prevents recursion into that directory, instead
- * recursive_action() returns 0 (if FALSE) or 1 (if SKIP).
+ * If !ACTION_RECURSE, dirAction is called on the directory and its
+ * return value is returned from recursive_action(). No recursion.
  *
- * followLinks=0/1 differs mainly in handling of links to dirs.
+ * If ACTION_RECURSE, recursive_action() is called on each directory.
+ * If any one of these calls returns 0, current recursive_action() returns 0.
+ *
+ * If ACTION_DEPTHFIRST, dirAction is called after recurse.
+ * If it returns 0, the warning is printed and recursive_action() returns 0.
+ *
+ * If !ACTION_DEPTHFIRST, dirAction is called before we recurse.
+ * Return value of 0 (FALSE) or 2 (SKIP) prevents recursion
+ * into that directory, instead recursive_action() returns 0 (if FALSE)
+ * or 1 (if SKIP)
+ *
+ * ACTION_FOLLOWLINKS mainly controls handling of links to dirs.
  * 0: lstat(statbuf). Calls fileAction on link name even if points to dir.
  * 1: stat(statbuf). Calls dirAction and optionally recurse on link to dir.
  */
 
-int recursive_action(const char *fileName,
+int FAST_FUNC recursive_action(const char *fileName,
 		unsigned flags,
-		int (*fileAction)(const char *fileName, struct stat *statbuf, void* userData, int depth),
-		int (*dirAction)(const char *fileName, struct stat *statbuf, void* userData, int depth),
+		int FAST_FUNC (*fileAction)(const char *fileName, struct stat *statbuf, void* userData, int depth),
+		int FAST_FUNC (*dirAction)(const char *fileName, struct stat *statbuf, void* userData, int depth),
 		void* userData,
 		unsigned depth)
 {
 	struct stat statbuf;
+	unsigned follow;
 	int status;
 	DIR *dir;
 	struct dirent *next;
@@ -56,13 +69,22 @@ int recursive_action(const char *fileName,
 	if (!fileAction) fileAction = true_action;
 	if (!dirAction) dirAction = true_action;
 
-	status = ACTION_FOLLOWLINKS; /* hijack a variable for bitmask... */
-	if (!depth) status = ACTION_FOLLOWLINKS | ACTION_FOLLOWLINKS_L0;
-	status = ((flags & status) ? stat : lstat)(fileName, &statbuf);
+	follow = ACTION_FOLLOWLINKS;
+	if (depth == 0)
+		follow = ACTION_FOLLOWLINKS | ACTION_FOLLOWLINKS_L0;
+	follow &= flags;
+	status = (follow ? stat : lstat)(fileName, &statbuf);
 	if (status < 0) {
 #ifdef DEBUG_RECURS_ACTION
 		bb_error_msg("status=%d flags=%x", status, flags);
 #endif
+		if ((flags & ACTION_DANGLING_OK)
+		 && errno == ENOENT
+		 && lstat(fileName, &statbuf) == 0
+		) {
+			/* Dangling link */
+			return fileAction(fileName, &statbuf, userData, depth);
+		}
 		goto done_nak_warn;
 	}
 
@@ -103,10 +125,20 @@ int recursive_action(const char *fileName,
 		nextFile = concat_subpath_file(fileName, next->d_name);
 		if (nextFile == NULL)
 			continue;
-		/* now descend into it (NB: ACTION_RECURSE is set in flags) */
-		if (!recursive_action(nextFile, flags, fileAction, dirAction, userData, depth+1))
+		/* process every file (NB: ACTION_RECURSE is set in flags) */
+		if (!recursive_action(nextFile, flags, fileAction, dirAction,
+						userData, depth + 1))
 			status = FALSE;
+//		s = recursive_action(nextFile, flags, fileAction, dirAction,
+//						userData, depth + 1);
 		free(nextFile);
+//#define RECURSE_RESULT_ABORT 3
+//		if (s == RECURSE_RESULT_ABORT) {
+//			closedir(dir);
+//			return s;
+//		}
+//		if (s == FALSE)
+//			status = FALSE;
 	}
 	closedir(dir);
 
@@ -115,11 +147,10 @@ int recursive_action(const char *fileName,
 			goto done_nak_warn;
 	}
 
-	if (!status)
-		return FALSE;
-	return TRUE;
+	return status;
 
  done_nak_warn:
-	bb_simple_perror_msg(fileName);
+	if (!(flags & ACTION_QUIET))
+		bb_simple_perror_msg(fileName);
 	return FALSE;
 }

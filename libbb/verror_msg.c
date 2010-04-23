@@ -6,16 +6,17 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
-
-#include <syslog.h>
 #include "libbb.h"
+#if ENABLE_FEATURE_SYSLOG
+# include <syslog.h>
+#endif
 
 smallint logmode = LOGMODE_STDIO;
 const char *msg_eol = "\n";
 
-void bb_verror_msg(const char *s, va_list p, const char* strerr)
+void FAST_FUNC bb_verror_msg(const char *s, va_list p, const char* strerr)
 {
-	char *msg;
+	char *msg, *msg1;
 	int applet_len, strerr_len, msgeol_len, used;
 
 	if (!logmode)
@@ -36,31 +37,42 @@ void bb_verror_msg(const char *s, va_list p, const char* strerr)
 	applet_len = strlen(applet_name) + 2; /* "applet: " */
 	strerr_len = strerr ? strlen(strerr) : 0;
 	msgeol_len = strlen(msg_eol);
+	/* can't use xrealloc: it calls error_msg on failure,
+	 * that may result in a recursion */
 	/* +3 is for ": " before strerr and for terminating NUL */
-	msg = xrealloc(msg, applet_len + used + strerr_len + msgeol_len + 3);
-	/* TODO: maybe use writev instead of memmoving? Need full_writev? */
-	memmove(msg + applet_len, msg, used);
-	used += applet_len;
-	strcpy(msg, applet_name);
-	msg[applet_len - 2] = ':';
-	msg[applet_len - 1] = ' ';
-	if (strerr) {
-		if (s[0]) { /* not perror_nomsg? */
-			msg[used++] = ':';
-			msg[used++] = ' ';
+	msg1 = realloc(msg, applet_len + used + strerr_len + msgeol_len + 3);
+	if (!msg1) {
+		msg[used++] = '\n'; /* overwrites NUL */
+		applet_len = 0;
+	} else {
+		msg = msg1;
+		/* TODO: maybe use writev instead of memmoving? Need full_writev? */
+		memmove(msg + applet_len, msg, used);
+		used += applet_len;
+		strcpy(msg, applet_name);
+		msg[applet_len - 2] = ':';
+		msg[applet_len - 1] = ' ';
+		if (strerr) {
+			if (s[0]) { /* not perror_nomsg? */
+				msg[used++] = ':';
+				msg[used++] = ' ';
+			}
+			strcpy(&msg[used], strerr);
+			used += strerr_len;
 		}
-		strcpy(&msg[used], strerr);
-		used += strerr_len;
+		strcpy(&msg[used], msg_eol);
+		used += msgeol_len;
 	}
-	strcpy(&msg[used], msg_eol);
 
 	if (logmode & LOGMODE_STDIO) {
-		fflush(stdout);
-		full_write(2, msg, used + msgeol_len);
+		fflush_all();
+		full_write(STDERR_FILENO, msg, used);
 	}
+#if ENABLE_FEATURE_SYSLOG
 	if (logmode & LOGMODE_SYSLOG) {
 		syslog(LOG_ERR, "%s", msg + applet_len);
 	}
+#endif
 	free(msg);
 }
 
@@ -70,7 +82,7 @@ void bb_verror_msg(const char *s, va_list p, const char* strerr)
 /* Code size is approximately the same, but currently it's the only user
  * of writev in entire bbox. __libc_writev in uclibc is ~50 bytes. */
 
-void bb_verror_msg(const char *s, va_list p, const char* strerr)
+void FAST_FUNC bb_verror_msg(const char *s, va_list p, const char* strerr)
 {
 	int strerr_len, msgeol_len;
 	struct iovec iov[3];
@@ -116,12 +128,14 @@ void bb_verror_msg(const char *s, va_list p, const char* strerr)
 		iov[1].iov_len = 2;
 		/*iov[2].iov_base = msgc;*/
 		/*iov[2].iov_len = used;*/
-		fflush(stdout);
-		writev(2, iov, 3);
+		fflush_all();
+		writev(STDERR_FILENO, iov, 3);
 	}
+# if ENABLE_FEATURE_SYSLOG
 	if (logmode & LOGMODE_SYSLOG) {
 		syslog(LOG_ERR, "%s", msgc);
 	}
+# endif
 	free(msgc);
 }
 #endif

@@ -1,7 +1,7 @@
 /* vi: set sw=4 ts=4: */
 /*
  * split - split a file into pieces
- * Copyright (c) 2007 Bernhard Fischer
+ * Copyright (c) 2007 Bernhard Reutner-Fischer
  *
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
@@ -20,7 +20,7 @@ static const struct suffix_mult split_suffices[] = {
 #if ENABLE_FEATURE_SPLIT_FANCY
 	{ "g", 1024*1024*1024 },
 #endif
-	{ }
+	{ "", 0 }
 };
 
 /* Increment the suffix part of the filename.
@@ -56,7 +56,7 @@ enum { READ_BUFFER_SIZE = COMMON_BUFSIZE - 1 };
 #define SPLIT_OPT_a (1<<2)
 
 int split_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int split_main(int argc, char **argv)
+int split_main(int argc UNUSED_PARAM, char **argv)
 {
 	unsigned suffix_len = 2;
 	char *pfx;
@@ -68,22 +68,24 @@ int split_main(int argc, char **argv)
 	ssize_t bytes_read, to_write;
 	char *src;
 
-	opt_complementary = "?2";
-	opt = getopt32(argv, "l:b:a:", &count_p, &count_p, &sfx);
+	opt_complementary = "?2:a+"; /* max 2 args; -a N */
+	opt = getopt32(argv, "l:b:a:", &count_p, &count_p, &suffix_len);
 
 	if (opt & SPLIT_OPT_l)
-		cnt = xatoul(count_p);
-	if (opt & SPLIT_OPT_b)
-		cnt = xatoul_sfx(count_p, split_suffices);
-	if (opt & SPLIT_OPT_a)
-		suffix_len = xatou(sfx);
+		cnt = XATOOFF(count_p);
+	if (opt & SPLIT_OPT_b) // FIXME: also needs XATOOFF
+		cnt = xatoull_sfx(count_p, split_suffices);
 	sfx = "x";
 
 	argv += optind;
 	if (argv[0]) {
+		int fd;
 		if (argv[1])
 			sfx = argv[1];
-		xmove_fd(xopen(argv[0], O_RDONLY), 0);
+		fd = open_or_warn_stdin(argv[0]);
+		if (fd == -1)
+			return EXIT_FAILURE;
+		xmove_fd(fd, STDIN_FILENO);
 	} else {
 		argv[0] = (char *) bb_msg_standard_input;
 	}
@@ -100,7 +102,7 @@ int split_main(int argc, char **argv)
 	}
 
 	while (1) {
-		bytes_read = safe_read(0, read_buffer, READ_BUFFER_SIZE);
+		bytes_read = safe_read(STDIN_FILENO, read_buffer, READ_BUFFER_SIZE);
 		if (!bytes_read)
 			break;
 		if (bytes_read < 0)
@@ -132,7 +134,7 @@ int split_main(int argc, char **argv)
 				}
 			}
 
-			xwrite(1, src, to_write);
+			xwrite(STDOUT_FILENO, src, to_write);
 			bytes_read -= to_write;
 			src += to_write;
 		} while (bytes_read);

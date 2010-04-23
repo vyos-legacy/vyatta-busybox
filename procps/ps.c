@@ -4,7 +4,7 @@
  *
  * Copyright (C) 1999-2004 by Erik Andersen <andersen@codepoet.org>
  * Fix for SELinux Support:(c)2007 Hiroshi Shinji <shiroshi@my.email.ne.jp>
-                           (c)2007 Yuichi Nakamura <ynakam@hitachisoft.jp>
+ *                         (c)2007 Yuichi Nakamura <ynakam@hitachisoft.jp>
  *
  * Licensed under the GPL version 2, see the file LICENSE in this tarball.
  */
@@ -16,11 +16,167 @@ enum { MAX_WIDTH = 2*1024 };
 
 #if ENABLE_DESKTOP
 
+#include <sys/times.h> /* for times() */
+#ifndef AT_CLKTCK
+#define AT_CLKTCK 17
+#endif
+
+
+#if ENABLE_SELINUX
+#define SELINUX_O_PREFIX "label,"
+#define DEFAULT_O_STR    (SELINUX_O_PREFIX "pid,user" IF_FEATURE_PS_TIME(",time") ",args")
+#else
+#define DEFAULT_O_STR    ("pid,user" IF_FEATURE_PS_TIME(",time") ",args")
+#endif
+
+typedef struct {
+	uint16_t width;
+	char name6[6];
+	const char *header;
+	void (*f)(char *buf, int size, const procps_status_t *ps);
+	int ps_flags;
+} ps_out_t;
+
+struct globals {
+	ps_out_t* out;
+	int out_cnt;
+	int print_header;
+	int need_flags;
+	char *buffer;
+	unsigned terminal_width;
+#if ENABLE_FEATURE_PS_TIME
+	unsigned kernel_HZ;
+	unsigned long long seconds_since_boot;
+#endif
+	char default_o[sizeof(DEFAULT_O_STR)];
+} FIX_ALIASING;
+#define G (*(struct globals*)&bb_common_bufsiz1)
+#define out                (G.out               )
+#define out_cnt            (G.out_cnt           )
+#define print_header       (G.print_header      )
+#define need_flags         (G.need_flags        )
+#define buffer             (G.buffer            )
+#define terminal_width     (G.terminal_width    )
+#define kernel_HZ          (G.kernel_HZ         )
+#define seconds_since_boot (G.seconds_since_boot)
+#define default_o          (G.default_o         )
+#define INIT_G() do { } while (0)
+
+#if ENABLE_FEATURE_PS_TIME
+/* for ELF executables, notes are pushed before environment and args */
+static ptrdiff_t find_elf_note(ptrdiff_t findme)
+{
+	ptrdiff_t *ep = (ptrdiff_t *) environ;
+
+	while (*ep++);
+	while (*ep) {
+		if (ep[0] == findme) {
+			return ep[1];
+		}
+		ep += 2;
+	}
+	return -1;
+}
+
+#if ENABLE_FEATURE_PS_UNUSUAL_SYSTEMS
+static unsigned get_HZ_by_waiting(void)
+{
+	struct timeval tv1, tv2;
+	unsigned t1, t2, r, hz;
+	unsigned cnt = cnt; /* for compiler */
+	int diff;
+
+	r = 0;
+
+	/* Wait for times() to reach new tick */
+	t1 = times(NULL);
+	do {
+		t2 = times(NULL);
+	} while (t2 == t1);
+	gettimeofday(&tv2, NULL);
+
+	do {
+		t1 = t2;
+		tv1.tv_usec = tv2.tv_usec;
+
+		/* Wait exactly one times() tick */
+		do {
+			t2 = times(NULL);
+		} while (t2 == t1);
+		gettimeofday(&tv2, NULL);
+
+		/* Calculate ticks per sec, rounding up to even */
+		diff = tv2.tv_usec - tv1.tv_usec;
+		if (diff <= 0) diff += 1000000;
+		hz = 1000000u / (unsigned)diff;
+		hz = (hz+1) & ~1;
+
+		/* Count how many same hz values we saw */
+		if (r != hz) {
+			r = hz;
+			cnt = 0;
+		}
+		cnt++;
+	} while (cnt < 3); /* exit if saw 3 same values */
+
+	return r;
+}
+#else
+static inline unsigned get_HZ_by_waiting(void)
+{
+	/* Better method? */
+	return 100;
+}
+#endif
+
+static unsigned get_kernel_HZ(void)
+{
+	//char buf[64];
+	struct sysinfo info;
+
+	if (kernel_HZ)
+		return kernel_HZ;
+
+	/* Works for ELF only, Linux 2.4.0+ */
+	kernel_HZ = find_elf_note(AT_CLKTCK);
+	if (kernel_HZ == (unsigned)-1)
+		kernel_HZ = get_HZ_by_waiting();
+
+	//if (open_read_close("/proc/uptime", buf, sizeof(buf) <= 0)
+	//	bb_perror_msg_and_die("can't read %s", "/proc/uptime");
+	//buf[sizeof(buf)-1] = '\0';
+	///sscanf(buf, "%llu", &seconds_since_boot);
+	sysinfo(&info);
+	seconds_since_boot = info.uptime;
+
+	return kernel_HZ;
+}
+#endif
+
 /* Print value to buf, max size+1 chars (including trailing '\0') */
 
 static void func_user(char *buf, int size, const procps_status_t *ps)
 {
+#if 1
 	safe_strncpy(buf, get_cached_username(ps->uid), size+1);
+#else
+	/* "compatible" version, but it's larger */
+	/* procps 2.18 shows numeric UID if name overflows the field */
+	/* TODO: get_cached_username() returns numeric string if
+	 * user has no passwd record, we will display it
+	 * left-justified here; too long usernames are shown
+	 * as _right-justified_ IDs. Is it worth fixing? */
+	const char *user = get_cached_username(ps->uid);
+	if (strlen(user) <= size)
+		safe_strncpy(buf, user, size+1);
+	else
+		sprintf(buf, "%*u", size, (unsigned)ps->uid);
+#endif
+}
+
+static void func_group(char *buf, int size, const procps_status_t *ps)
+{
+	safe_strncpy(buf, get_cached_groupname(ps->gid), size+1);
 }
 
 static void func_comm(char *buf, int size, const procps_status_t *ps)
@@ -30,7 +186,7 @@ static void func_comm(char *buf, int size, const procps_status_t *ps)
 
 static void func_args(char *buf, int size, const procps_status_t *ps)
 {
-	read_cmdline(buf, size, ps->pid, ps->comm);
+	read_cmdline(buf, size+1, ps->pid, ps->comm);
 }
 
 static void func_pid(char *buf, int size, const procps_status_t *ps)
@@ -50,9 +206,12 @@ static void func_pgid(char *buf, int size, const procps_status_t *ps)
 
 static void put_lu(char *buf, int size, unsigned long u)
 {
-	char buf5[5];
-	smart_ulltoa5( ((unsigned long long)u) << 10, buf5);
-	sprintf(buf, "%.*s", size, buf5);
+	char buf4[5];
+
+	/* see http://en.wikipedia.org/wiki/Tera */
+	smart_ulltoa4(u, buf4, " mgtpezy");
+	buf4[4] = '\0';
+	sprintf(buf, "%.*s", size, buf4);
 }
 
 static void func_vsz(char *buf, int size, const procps_status_t *ps)
@@ -73,6 +232,54 @@ static void func_tty(char *buf, int size, const procps_status_t *ps)
 		snprintf(buf, size+1, "%u,%u", ps->tty_major, ps->tty_minor);
 }
 
+
+#if ENABLE_FEATURE_PS_ADDITIONAL_COLUMNS
+
+static void func_rgroup(char *buf, int size, const procps_status_t *ps)
+{
+	safe_strncpy(buf, get_cached_groupname(ps->rgid), size+1);
+}
+
+static void func_ruser(char *buf, int size, const procps_status_t *ps)
+{
+	safe_strncpy(buf, get_cached_username(ps->ruid), size+1);
+}
+
+static void func_nice(char *buf, int size, const procps_status_t *ps)
+{
+	sprintf(buf, "%*d", size, ps->niceness);
+}
+
+#endif /* FEATURE_PS_ADDITIONAL_COLUMNS */
+
+#if ENABLE_FEATURE_PS_TIME
+static void func_etime(char *buf, int size, const procps_status_t *ps)
+{
+	/* elapsed time [[dd-]hh:]mm:ss; here only mm:ss */
+	unsigned long mm;
+	unsigned ss;
+
+	mm = ps->start_time / get_kernel_HZ();
+	/* must be after get_kernel_HZ()! */
+	mm = seconds_since_boot - mm;
+	ss = mm % 60;
+	mm /= 60;
+	snprintf(buf, size+1, "%3lu:%02u", mm, ss);
+}
+
+static void func_time(char *buf, int size, const procps_status_t *ps)
+{
+	/* cumulative time [[dd-]hh:]mm:ss; here only mm:ss */
+	unsigned long mm;
+	unsigned ss;
+
+	mm = (ps->utime + ps->stime) / get_kernel_HZ();
+	ss = mm % 60;
+	mm /= 60;
+	snprintf(buf, size+1, "%3lu:%02u", mm, ss);
+}
+#endif
+
 #if ENABLE_SELINUX
 static void func_label(char *buf, int size, const procps_status_t *ps)
 {
@@ -86,44 +293,32 @@ static void func_nice(char *buf, int size, const procps_status_t *ps)
 	ps->???
 }
 
-static void func_etime(char *buf, int size, const procps_status_t *ps)
-{
-	elapled time [[dd-]hh:]mm:ss
-}
-
-static void func_time(char *buf, int size, const procps_status_t *ps)
-{
-	cumulative time [[dd-]hh:]mm:ss
-}
-
 static void func_pcpu(char *buf, int size, const procps_status_t *ps)
 {
 }
 */
 
-typedef struct {
-	uint16_t width;
-	char name[6];
-	const char *header;
-	void (*f)(char *buf, int size, const procps_status_t *ps);
-	int ps_flags;
-} ps_out_t;
-
 static const ps_out_t out_spec[] = {
 // Mandated by POSIX:
 	{ 8                  , "user"  ,"USER"   ,func_user  ,PSSCAN_UIDGID  },
+	{ 8                  , "group" ,"GROUP"  ,func_group ,PSSCAN_UIDGID  },
 	{ 16                 , "comm"  ,"COMMAND",func_comm  ,PSSCAN_COMM    },
-	{ 256                , "args"  ,"COMMAND",func_args  ,PSSCAN_COMM    },
+	{ MAX_WIDTH          , "args"  ,"COMMAND",func_args  ,PSSCAN_COMM    },
 	{ 5                  , "pid"   ,"PID"    ,func_pid   ,PSSCAN_PID     },
 	{ 5                  , "ppid"  ,"PPID"   ,func_ppid  ,PSSCAN_PPID    },
 	{ 5                  , "pgid"  ,"PGID"   ,func_pgid  ,PSSCAN_PGID    },
-//	{ sizeof("ELAPSED")-1, "etime" ,"ELAPSED",func_etime ,PSSCAN_        },
-//	{ sizeof("GROUP"  )-1, "group" ,"GROUP"  ,func_group ,PSSCAN_UIDGID  },
-//	{ sizeof("NI"     )-1, "nice"  ,"NI"     ,func_nice  ,PSSCAN_        },
-//	{ sizeof("%CPU"   )-1, "pcpu"  ,"%CPU"   ,func_pcpu  ,PSSCAN_        },
-//	{ sizeof("RGROUP" )-1, "rgroup","RGROUP" ,func_rgroup,PSSCAN_UIDGID  },
-//	{ sizeof("RUSER"  )-1, "ruser" ,"RUSER"  ,func_ruser ,PSSCAN_UIDGID  },
-//	{ sizeof("TIME"   )-1, "time"  ,"TIME"   ,func_time  ,PSSCAN_        },
+#if ENABLE_FEATURE_PS_TIME
+	{ sizeof("ELAPSED")-1, "etime" ,"ELAPSED",func_etime ,PSSCAN_START_TIME },
+#endif
+#if ENABLE_FEATURE_PS_ADDITIONAL_COLUMNS
+	{ 5                  , "nice"  ,"NI"     ,func_nice  ,PSSCAN_NICE    },
+	{ 8                  , "rgroup","RGROUP" ,func_rgroup,PSSCAN_RUIDGID },
+	{ 8                  , "ruser" ,"RUSER"  ,func_ruser ,PSSCAN_RUIDGID },
+//	{ 5                  , "pcpu"  ,"%CPU"   ,func_pcpu  ,PSSCAN_        },
+#endif
+#if ENABLE_FEATURE_PS_TIME
+	{ 6                  , "time"  ,"TIME"   ,func_time  ,PSSCAN_STIME | PSSCAN_UTIME },
+#endif
 	{ 6                  , "tty"   ,"TT"     ,func_tty   ,PSSCAN_TTY     },
 	{ 4                  , "vsz"   ,"VSZ"    ,func_vsz   ,PSSCAN_VSZ     },
 // Not mandated by POSIX, but useful:
@@ -133,43 +328,17 @@ static const ps_out_t out_spec[] = {
 #endif
 };
 
-#if ENABLE_SELINUX
-#define SELINIX_O_PREFIX "label,"
-#define DEFAULT_O_STR    SELINIX_O_PREFIX "pid,user" /* TODO: ,vsz,stat */ ",args"
-#else
-#define DEFAULT_O_STR    "pid,user" /* TODO: ,vsz,stat */ ",args"
-#endif
-
-struct globals {
-	ps_out_t* out;
-	int out_cnt;
-	int print_header;
-	int need_flags;
-	char *buffer;
-	unsigned terminal_width;
-	char default_o[sizeof(DEFAULT_O_STR)];
-};
-#define G (*(struct globals*)&bb_common_bufsiz1)
-#define out            (G.out           )
-#define out_cnt        (G.out_cnt       )
-#define print_header   (G.print_header  )
-#define need_flags     (G.need_flags    )
-#define buffer         (G.buffer        )
-#define terminal_width (G.terminal_width)
-#define default_o      (G.default_o     )
-
 static ps_out_t* new_out_t(void)
 {
-	int i = out_cnt++;
-	out = xrealloc(out, out_cnt * sizeof(*out));
-	return &out[i];
+	out = xrealloc_vector(out, 2, out_cnt);
+	return &out[out_cnt++];
 }
 
 static const ps_out_t* find_out_spec(const char *name)
 {
-	int i;
+	unsigned i;
 	for (i = 0; i < ARRAY_SIZE(out_spec); i++) {
-		if (!strcmp(name, out_spec[i].name))
+		if (!strncmp(name, out_spec[i].name6, 6))
 			return &out_spec[i];
 	}
 	bb_error_msg_and_die("bad -o argument '%s'", name);
@@ -214,7 +383,7 @@ static void parse_o(char* opt)
 		print_header = 1;
 }
 
-static void post_process(void)
+static void alloc_line_buffer(void)
 {
 	int i;
 	int width = 0;
@@ -224,6 +393,12 @@ static void post_process(void)
 			print_header = 1;
 		}
 		width += out[i].width + 1; /* "FIELD " */
+		if ((int)(width - terminal_width) > 0) {
+			/* The rest does not fit on the screen */
+			//out[i].width -= (width - terminal_width - 1);
+			out_cnt = i + 1;
+			break;
+		}
 	}
 #if ENABLE_SELINUX
 	if (!is_selinux_enabled())
@@ -279,36 +454,52 @@ static void format_process(const procps_status_t *ps)
 }
 
 int ps_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int ps_main(int argc, char **argv)
+int ps_main(int argc UNUSED_PARAM, char **argv)
 {
 	procps_status_t *p;
 	llist_t* opt_o = NULL;
-	USE_SELINUX(int opt;)
+	int opt;
+	enum {
+		OPT_Z = (1 << 0),
+		OPT_o = (1 << 1),
+		OPT_a = (1 << 2),
+		OPT_A = (1 << 3),
+		OPT_d = (1 << 4),
+		OPT_e = (1 << 5),
+		OPT_f = (1 << 6),
+		OPT_l = (1 << 7),
+		OPT_T = (1 << 8) * ENABLE_FEATURE_SHOW_THREADS,
+	};
+
+	INIT_G();
 
 	// POSIX:
 	// -a  Write information for all processes associated with terminals
 	//     Implementations may omit session leaders from this list
 	// -A  Write information for all processes
 	// -d  Write information for all processes, except session leaders
-	// -e  Write information for all processes (equivalent to -A.)
+	// -e  Write information for all processes (equivalent to -A)
 	// -f  Generate a full listing
 	// -l  Generate a long listing
 	// -o col1,col2,col3=header
 	//     Select which columns to display
-	/* We allow (and ignore) most of the above. FIXME */
+	/* We allow (and ignore) most of the above. FIXME.
+	 * -T is picked for threads (POSIX hasn't it standardized).
+	 * procps v3.2.7 supports -T and shows tids as SPID column,
+	 * it also supports -L where it shows tids as LWP column.
+	 */
 	opt_complementary = "o::";
-	USE_SELINUX(opt =) getopt32(argv, "Zo:aAdefl", &opt_o);
+	opt = getopt32(argv, "Zo:aAdefl"IF_FEATURE_SHOW_THREADS("T"), &opt_o);
 	if (opt_o) {
 		do {
-			parse_o(opt_o->data);
-			opt_o = opt_o->link;
+			parse_o(llist_pop(&opt_o));
 		} while (opt_o);
 	} else {
 		/* Below: parse_o() needs char*, NOT const char*... */
 #if ENABLE_SELINUX
-		if (!(opt & 1) || !is_selinux_enabled()) {
+		if (!(opt & OPT_Z) || !is_selinux_enabled()) {
 			/* no -Z or no SELinux: do not show LABEL */
-			strcpy(default_o, DEFAULT_O_STR + sizeof(SELINIX_O_PREFIX)-1);
+			strcpy(default_o, DEFAULT_O_STR + sizeof(SELINUX_O_PREFIX)-1);
 		} else
 #endif
 		{
@@ -316,7 +507,10 @@ int ps_main(int argc, char **argv)
 		}
 		parse_o(default_o);
 	}
-	post_process();
+#if ENABLE_FEATURE_SHOW_THREADS
+	if (opt & OPT_T)
+		need_flags |= PSSCAN_TASKS;
+#endif
 
 	/* Was INT_MAX, but some libc's go belly up with printf("%.*s")
 	 * and such large widths */
@@ -326,10 +520,11 @@ int ps_main(int argc, char **argv)
 		if (--terminal_width > MAX_WIDTH)
 			terminal_width = MAX_WIDTH;
 	}
+	alloc_line_buffer();
 	format_header();
 
 	p = NULL;
-	while ((p = procps_scan(p, need_flags))) {
+	while ((p = procps_scan(p, need_flags)) != NULL) {
 		format_process(p);
 	}
 
@@ -341,59 +536,62 @@ int ps_main(int argc, char **argv)
 
 
 int ps_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int ps_main(int argc, char **argv)
+int ps_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 {
-	procps_status_t *p = NULL;
-	int len;
-	SKIP_SELINUX(const) int use_selinux = 0;
-	USE_SELINUX(int i;)
-#if !ENABLE_FEATURE_PS_WIDE
-	enum { terminal_width = 79 };
-#else
-	int terminal_width;
+	procps_status_t *p;
+	int psscan_flags = PSSCAN_PID | PSSCAN_UIDGID
+			| PSSCAN_STATE | PSSCAN_VSZ | PSSCAN_COMM;
+	unsigned terminal_width IF_NOT_FEATURE_PS_WIDE(= 79);
+	enum {
+		OPT_Z = (1 << 0) * ENABLE_SELINUX,
+		OPT_T = (1 << ENABLE_SELINUX) * ENABLE_FEATURE_SHOW_THREADS,
+	};
+	int opts = 0;
+	/* If we support any options, parse argv */
+#if ENABLE_SELINUX || ENABLE_FEATURE_SHOW_THREADS || ENABLE_FEATURE_PS_WIDE
+# if ENABLE_FEATURE_PS_WIDE
+	/* -w is a bit complicated */
 	int w_count = 0;
-#endif
-
-#if ENABLE_FEATURE_PS_WIDE || ENABLE_SELINUX
-#if ENABLE_FEATURE_PS_WIDE
 	opt_complementary = "-:ww";
-	USE_SELINUX(i =) getopt32(argv, USE_SELINUX("Z") "w", &w_count);
+	opts = getopt32(argv, IF_SELINUX("Z")IF_FEATURE_SHOW_THREADS("T")"w", &w_count);
 	/* if w is given once, GNU ps sets the width to 132,
 	 * if w is given more than once, it is "unlimited"
 	 */
 	if (w_count) {
-		terminal_width = (w_count==1) ? 132 : MAX_WIDTH;
+		terminal_width = (w_count == 1) ? 132 : MAX_WIDTH;
 	} else {
 		get_terminal_width_height(0, &terminal_width, NULL);
 		/* Go one less... */
 		if (--terminal_width > MAX_WIDTH)
 			terminal_width = MAX_WIDTH;
 	}
-#else /* only ENABLE_SELINUX */
-	i = getopt32(argv, "Z");
+# else
+	/* -w is not supported, only -Z and/or -T */
+	opt_complementary = "-";
+	opts = getopt32(argv, IF_SELINUX("Z")IF_FEATURE_SHOW_THREADS("T"));
+# endif
 #endif
+
 #if ENABLE_SELINUX
-	if ((i & 1) && is_selinux_enabled())
-		use_selinux = PSSCAN_CONTEXT;
+	if ((opts & OPT_Z) && is_selinux_enabled()) {
+		psscan_flags = PSSCAN_PID | PSSCAN_CONTEXT
+				| PSSCAN_STATE | PSSCAN_COMM;
+		puts("  PID CONTEXT                          STAT COMMAND");
+	} else
 #endif
-#endif /* ENABLE_FEATURE_PS_WIDE || ENABLE_SELINUX */
+	{
+		puts("  PID USER       VSZ STAT COMMAND");
+	}
+	if (opts & OPT_T) {
+		psscan_flags |= PSSCAN_TASKS;
+	}
 
-	if (use_selinux)
-		puts("  PID Context                          Stat Command");
-	else
-		puts("  PID  Uid        VSZ Stat Command");
-
-	while ((p = procps_scan(p, 0
-			| PSSCAN_PID
-			| PSSCAN_UIDGID
-			| PSSCAN_STATE
-			| PSSCAN_VSZ
-			| PSSCAN_COMM
-			| use_selinux
-	))) {
+	p = NULL;
+	while ((p = procps_scan(p, psscan_flags)) != NULL) {
+		int len;
 #if ENABLE_SELINUX
-		if (use_selinux) {
-			len = printf("%5u %-32s %s ",
+		if (psscan_flags & PSSCAN_CONTEXT) {
+			len = printf("%5u %-32.32s %s  ",
 					p->pid,
 					p->context ? p->context : "unknown",
 					p->state);
@@ -401,12 +599,17 @@ int ps_main(int argc, char **argv)
 #endif
 		{
 			const char *user = get_cached_username(p->uid);
-			if (p->vsz == 0)
-				len = printf("%5u %-8s        %s ",
-					p->pid, user, p->state);
-			else
-				len = printf("%5u %-8s %6lu %s ",
-					p->pid, user, p->vsz, p->state);
+			//if (p->vsz == 0)
+			//	len = printf("%5u %-8.8s        %s ",
+			//		p->pid, user, p->state);
+			//else
+			{
+				char buf6[6];
+				smart_ulltoa5(p->vsz, buf6, " mgtpezy");
+				buf6[5] = '\0';
+				len = printf("%5u %-8.8s %s %s  ",
+					p->pid, user, buf6, p->state);
+			}
 		}
 
 		{
@@ -421,4 +624,4 @@ int ps_main(int argc, char **argv)
 	return EXIT_SUCCESS;
 }
 
-#endif /* ENABLE_DESKTOP */
+#endif /* !ENABLE_DESKTOP */

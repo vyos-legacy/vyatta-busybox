@@ -2,7 +2,7 @@
 /*
  * resize - set terminal width and height.
  *
- * Copyright 2006 Bernhard Fischer
+ * Copyright 2006 Bernhard Reutner-Fischer
  *
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
@@ -11,20 +11,20 @@
 
 #define ESC "\033"
 
-#define old_termios (*(struct termios*)&bb_common_bufsiz1)
+#define old_termios_p ((struct termios*)&bb_common_bufsiz1)
 
 static void
-onintr(int sig ATTRIBUTE_UNUSED)
+onintr(int sig UNUSED_PARAM)
 {
-	tcsetattr(STDERR_FILENO, TCSANOW, &old_termios);
-	exit(1);
+	tcsetattr(STDERR_FILENO, TCSANOW, old_termios_p);
+	exit(EXIT_FAILURE);
 }
 
 int resize_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int resize_main(int argc, char **argv)
+int resize_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 {
 	struct termios new;
-	struct winsize w = { 0,0,0,0 };
+	struct winsize w = { 0, 0, 0, 0 };
 	int ret;
 
 	/* We use _stderr_ in order to make resize usable
@@ -33,14 +33,16 @@ int resize_main(int argc, char **argv)
 	 * and operate on it - should we do the same?
 	 */
 
-	tcgetattr(STDERR_FILENO, &old_termios); /* fiddle echo */
-	new = old_termios;
+	tcgetattr(STDERR_FILENO, old_termios_p); /* fiddle echo */
+	memcpy(&new, old_termios_p, sizeof(new));
 	new.c_cflag |= (CLOCAL | CREAD);
 	new.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-	signal(SIGINT, onintr);
-	signal(SIGQUIT, onintr);
-	signal(SIGTERM, onintr);
-	signal(SIGALRM, onintr);
+	bb_signals(0
+		+ (1 << SIGINT)
+		+ (1 << SIGQUIT)
+		+ (1 << SIGTERM)
+		+ (1 << SIGALRM)
+		, onintr);
 	tcsetattr(STDERR_FILENO, TCSANOW, &new);
 
 	/* save_cursor_pos 7
@@ -59,7 +61,7 @@ int resize_main(int argc, char **argv)
 	 * (gotten via TIOCGWINSZ) and recomputing *pixel values */
 	ret = ioctl(STDERR_FILENO, TIOCSWINSZ, &w);
 
-	tcsetattr(STDERR_FILENO, TCSANOW, &old_termios);
+	tcsetattr(STDERR_FILENO, TCSANOW, old_termios_p);
 
 	if (ENABLE_FEATURE_RESIZE_PRINT)
 		printf("COLUMNS=%d;LINES=%d;export COLUMNS LINES;\n",

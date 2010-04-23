@@ -8,13 +8,11 @@
  *
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
-
-//#include <sys/ioctl.h>
 #include "libbb.h"
 
 /* From <linux/kd.h> */
 struct kbkeycode {
-	unsigned int scancode, keycode;
+	unsigned scancode, keycode;
 };
 enum {
 	KDSETKEYCODE = 0x4B4D  /* write kernel keycode table entry */
@@ -26,21 +24,21 @@ int setkeycodes_main(int argc, char **argv)
 	int fd, sc;
 	struct kbkeycode a;
 
-	if (argc % 2 != 1 || argc < 2) {
+	if (!(argc & 1) /* if even */ || argc < 2) {
 		bb_show_usage();
 	}
 
-	fd = get_console_fd();
+	fd = get_console_fd_or_die();
 
 	while (argc > 2) {
-		a.keycode = xatoul_range(argv[2], 0, 127);
+		a.keycode = xatou_range(argv[2], 0, 127);
 		a.scancode = sc = xstrtoul_range(argv[1], 16, 0, 255);
 		if (a.scancode > 127) {
 			a.scancode -= 0xe000;
 			a.scancode += 128;
 		}
 		ioctl_or_perror_and_die(fd, KDSETKEYCODE, &a,
-			"failed to set SCANCODE %x to KEYCODE %d",
+			"can't set SCANCODE %x to KEYCODE %d",
 			sc, a.keycode);
 		argc -= 2;
 		argv += 2;

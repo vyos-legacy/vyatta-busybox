@@ -4,6 +4,8 @@
  * Ported to busybox: KaiGai Kohei <kaigai@ak.jp.nec.com>
  *
  * Copyright (C) KaiGai Kohei <kaigai@ak.jp.nec.com>
+ *
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 #include "libbb.h"
@@ -47,46 +49,29 @@ static void display_boolean(void)
 
 static void read_config(char **pc, int npc, char **fc, int nfc)
 {
-	char buf[256];
-	FILE *fp;
+	char *buf;
+	parser_t *parser;
 	int pc_ofs = 0, fc_ofs = 0, section = -1;
 
 	pc[0] = fc[0] = NULL;
 
-	fp = fopen("/etc/sestatus.conf", "rb");
-	if (fp == NULL)
-		return;
-
-	while (fgets(buf, sizeof(buf), fp) != NULL) {
-		int i, c;
-
-		/* kills comments */
-		for (i = 0; (c = buf[i]) != '\0'; i++) {
-			if (c == '#') {
-				buf[i] = '\0';
-				break;
-			}
-		}
-		trim(buf);
-
-		if (buf[0] == '\0')
-			continue;
-
+	parser = config_open("/etc/sestatus.conf");
+	while (config_read(parser, &buf, 1, 1, "# \t", PARSE_NORMAL)) {
 		if (strcmp(buf, "[process]") == 0) {
 			section = 1;
 		} else if (strcmp(buf, "[files]") == 0) {
 			section = 2;
 		} else {
 			if (section == 1 && pc_ofs < npc -1) {
-				pc[pc_ofs++] = strdup(buf);
+				pc[pc_ofs++] = xstrdup(buf);
 				pc[pc_ofs] = NULL;
 			} else if (section == 2 && fc_ofs < nfc - 1) {
-				fc[fc_ofs++] = strdup(buf);
+				fc[fc_ofs++] = xstrdup(buf);
 				fc[fc_ofs] = NULL;
 			}
 		}
 	}
-	fclose(fp);
+	config_close(parser);
 }
 
 static void display_verbose(void)
@@ -129,7 +114,8 @@ static void display_verbose(void)
 	/* files contexts */
 	puts("\nFile contexts:");
 
-	cterm = ttyname(0);
+	cterm = xmalloc_ttyname(0);
+//FIXME: if cterm == NULL, we segfault!??
 	puts(cterm);
 	if (cterm && lgetfilecon(cterm, &con) >= 0) {
 		printf(COL_FMT "%s\n", "Controlling term:", con);
@@ -137,7 +123,7 @@ static void display_verbose(void)
 			freecon(con);
 	}
 
-	for (i=0; fc[i] != NULL; i++) {
+	for (i = 0; fc[i] != NULL; i++) {
 		struct stat stbuf;
 
 		if (lgetfilecon(fc[i], &con) < 0)
@@ -159,7 +145,7 @@ static void display_verbose(void)
 }
 
 int sestatus_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int sestatus_main(int argc, char **argv)
+int sestatus_main(int argc UNUSED_PARAM, char **argv)
 {
 	unsigned opts;
 	const char *pol_path;

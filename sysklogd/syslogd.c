@@ -13,15 +13,15 @@
  * Licensed under the GPL v2 or later, see the file LICENSE in this tarball.
  */
 
+/*
+ * Done in syslogd_and_logger.c:
 #include "libbb.h"
-#include <paths.h>
-#include <sys/un.h>
-
-/* SYSLOG_NAMES defined to pull prioritynames[] and facilitynames[]
- * from syslog.h. Grrrr - glibc puts those in _rwdata_! :( */
 #define SYSLOG_NAMES
-#define SYSLOG_NAMES_CONST /* uclibc is saner :) */
-#include <sys/syslog.h>
+#define SYSLOG_NAMES_CONST
+#include <syslog.h>
+*/
+
+#include <sys/un.h>
 #include <sys/uio.h>
 
 #if ENABLE_FEATURE_REMOTE_LOG
@@ -42,7 +42,13 @@
  * (semaphores are down but do_mark routine tries to down them again) */
 #undef SYSLOGD_MARK
 
-enum { MAX_READ = 256 };
+/* Write locking does not seem to be useful either */
+#undef SYSLOGD_WRLOCK
+
+enum {
+	MAX_READ = CONFIG_FEATURE_SYSLOGD_READ_BUFFER_SIZE,
+	DNS_WAIT_SEC = 2 * 60,
+};
 
 /* Semaphore operation structures */
 struct shbuf_ds {
@@ -50,6 +56,15 @@ struct shbuf_ds {
 	int32_t tail;   /* end of message list */
 	char data[1];   /* data/messages */
 };
+
+#if ENABLE_FEATURE_REMOTE_LOG
+typedef struct {
+	int remoteFD;
+	unsigned last_dns_resolve;
+	len_and_sockaddr *remoteAddr;
+	const char *remoteHostname;
+} remoteHost_t;
+#endif
 
 /* Allows us to have smaller initializer. Ugly. */
 #define GLOBALS \
@@ -59,7 +74,7 @@ struct shbuf_ds {
 	/*int markInterval;*/                   \
 	/* level of messages to be logged */    \
 	int logLevel;                           \
-USE_FEATURE_ROTATE_LOGFILE( \
+IF_FEATURE_ROTATE_LOGFILE( \
 	/* max size of file before rotation */  \
 	unsigned logFileSize;                   \
 	/* number of rotated message files */   \
@@ -67,12 +82,7 @@ USE_FEATURE_ROTATE_LOGFILE( \
 	unsigned curFileSize;                   \
 	smallint isRegular;                     \
 ) \
-USE_FEATURE_REMOTE_LOG( \
-	/* udp socket for remote logging */     \
-	int remoteFD;                           \
-	len_and_sockaddr* remoteAddr;           \
-) \
-USE_FEATURE_IPC_SYSLOG( \
+IF_FEATURE_IPC_SYSLOG( \
 	int shmid; /* ipc shared memory id */   \
 	int s_semid; /* ipc semaphore id */     \
 	int shm_size;                           \
@@ -86,15 +96,19 @@ struct init_globals {
 
 struct globals {
 	GLOBALS
+
+#if ENABLE_FEATURE_REMOTE_LOG
+	llist_t *remoteHosts;
+#endif
 #if ENABLE_FEATURE_IPC_SYSLOG
 	struct shbuf_ds *shbuf;
 #endif
 	time_t last_log_time;
-	/* localhost's name */
-	char localHostName[64];
+	/* localhost's name. We print only first 64 chars */
+	char *hostname;
 
 	/* We recv into recvbuf... */
-	char recvbuf[MAX_READ];
+	char recvbuf[MAX_READ * (1 + ENABLE_FEATURE_SYSLOGD_DUP)];
 	/* ...then copy to parsebuf, escaping control chars */
 	/* (can grow x2 max) */
 	char parsebuf[MAX_READ*2];
@@ -115,9 +129,6 @@ static const struct init_globals init_data = {
 	.logFileSize = 200 * 1024,
 	.logFileRotate = 1,
 #endif
-#if ENABLE_FEATURE_REMOTE_LOG
-	.remoteFD = -1,
-#endif
 #if ENABLE_FEATURE_IPC_SYSLOG
 	.shmid = -1,
 	.s_semid = -1,
@@ -128,6 +139,9 @@ static const struct init_globals init_data = {
 };
 
 #define G (*ptr_to_globals)
+#define INIT_G() do { \
+	SET_PTR_TO_GLOBALS(memcpy(xzalloc(sizeof(G)), &init_data, sizeof(init_data))); \
+} while (0)
 
 
 /* Options */
@@ -137,39 +151,41 @@ enum {
 	OPTBIT_outfile, // -O
 	OPTBIT_loglevel, // -l
 	OPTBIT_small, // -S
-	USE_FEATURE_ROTATE_LOGFILE(OPTBIT_filesize   ,)	// -s
-	USE_FEATURE_ROTATE_LOGFILE(OPTBIT_rotatecnt  ,)	// -b
-	USE_FEATURE_REMOTE_LOG(    OPTBIT_remote     ,)	// -R
-	USE_FEATURE_REMOTE_LOG(    OPTBIT_localtoo   ,)	// -L
-	USE_FEATURE_IPC_SYSLOG(    OPTBIT_circularlog,)	// -C
+	IF_FEATURE_ROTATE_LOGFILE(OPTBIT_filesize   ,)	// -s
+	IF_FEATURE_ROTATE_LOGFILE(OPTBIT_rotatecnt  ,)	// -b
+	IF_FEATURE_REMOTE_LOG(    OPTBIT_remotelog  ,)	// -R
+	IF_FEATURE_REMOTE_LOG(    OPTBIT_locallog   ,)	// -L
+	IF_FEATURE_IPC_SYSLOG(    OPTBIT_circularlog,)	// -C
+	IF_FEATURE_SYSLOGD_DUP(   OPTBIT_dup        ,)	// -D
 
 	OPT_mark        = 1 << OPTBIT_mark    ,
 	OPT_nofork      = 1 << OPTBIT_nofork  ,
 	OPT_outfile     = 1 << OPTBIT_outfile ,
 	OPT_loglevel    = 1 << OPTBIT_loglevel,
 	OPT_small       = 1 << OPTBIT_small   ,
-	OPT_filesize    = USE_FEATURE_ROTATE_LOGFILE((1 << OPTBIT_filesize   )) + 0,
-	OPT_rotatecnt   = USE_FEATURE_ROTATE_LOGFILE((1 << OPTBIT_rotatecnt  )) + 0,
-	OPT_remotelog   = USE_FEATURE_REMOTE_LOG(    (1 << OPTBIT_remote     )) + 0,
-	OPT_locallog    = USE_FEATURE_REMOTE_LOG(    (1 << OPTBIT_localtoo   )) + 0,
-	OPT_circularlog = USE_FEATURE_IPC_SYSLOG(    (1 << OPTBIT_circularlog)) + 0,
+	OPT_filesize    = IF_FEATURE_ROTATE_LOGFILE((1 << OPTBIT_filesize   )) + 0,
+	OPT_rotatecnt   = IF_FEATURE_ROTATE_LOGFILE((1 << OPTBIT_rotatecnt  )) + 0,
+	OPT_remotelog   = IF_FEATURE_REMOTE_LOG(    (1 << OPTBIT_remotelog  )) + 0,
+	OPT_locallog    = IF_FEATURE_REMOTE_LOG(    (1 << OPTBIT_locallog   )) + 0,
+	OPT_circularlog = IF_FEATURE_IPC_SYSLOG(    (1 << OPTBIT_circularlog)) + 0,
+	OPT_dup         = IF_FEATURE_SYSLOGD_DUP(   (1 << OPTBIT_dup        )) + 0,
 };
 #define OPTION_STR "m:nO:l:S" \
-	USE_FEATURE_ROTATE_LOGFILE("s:" ) \
-	USE_FEATURE_ROTATE_LOGFILE("b:" ) \
-	USE_FEATURE_REMOTE_LOG(    "R:" ) \
-	USE_FEATURE_REMOTE_LOG(    "L"  ) \
-	USE_FEATURE_IPC_SYSLOG(    "C::")
+	IF_FEATURE_ROTATE_LOGFILE("s:" ) \
+	IF_FEATURE_ROTATE_LOGFILE("b:" ) \
+	IF_FEATURE_REMOTE_LOG(    "R:" ) \
+	IF_FEATURE_REMOTE_LOG(    "L"  ) \
+	IF_FEATURE_IPC_SYSLOG(    "C::") \
+	IF_FEATURE_SYSLOGD_DUP(   "D"  )
 #define OPTION_DECL *opt_m, *opt_l \
-	USE_FEATURE_ROTATE_LOGFILE(,*opt_s) \
-	USE_FEATURE_ROTATE_LOGFILE(,*opt_b) \
-	USE_FEATURE_REMOTE_LOG(    ,*opt_R) \
-	USE_FEATURE_IPC_SYSLOG(    ,*opt_C = NULL)
+	IF_FEATURE_ROTATE_LOGFILE(,*opt_s) \
+	IF_FEATURE_ROTATE_LOGFILE(,*opt_b) \
+	IF_FEATURE_IPC_SYSLOG(    ,*opt_C = NULL)
 #define OPTION_PARAM &opt_m, &G.logFilePath, &opt_l \
-	USE_FEATURE_ROTATE_LOGFILE(,&opt_s) \
-	USE_FEATURE_ROTATE_LOGFILE(,&opt_b) \
-	USE_FEATURE_REMOTE_LOG(    ,&opt_R) \
-	USE_FEATURE_IPC_SYSLOG(    ,&opt_C)
+	IF_FEATURE_ROTATE_LOGFILE(,&opt_s) \
+	IF_FEATURE_ROTATE_LOGFILE(,&opt_b) \
+	IF_FEATURE_REMOTE_LOG(	  ,&remoteAddrList) \
+	IF_FEATURE_IPC_SYSLOG(    ,&opt_C)
 
 
 /* circular buffer variables/structures */
@@ -180,8 +196,8 @@ enum {
 #error Please check CONFIG_FEATURE_IPC_SYSLOG_BUFFER_SIZE
 #endif
 
-/* our shared key */
-#define KEY_ID ((long)0x414e4547) /* "GENA" */
+/* our shared key (syslogd.c and logread.c must be in sync) */
+enum { KEY_ID = 0x414e4547 }; /* "GENA" */
 
 static void ipcsyslog_cleanup(void)
 {
@@ -199,7 +215,7 @@ static void ipcsyslog_cleanup(void)
 static void ipcsyslog_init(void)
 {
 	if (DEBUG)
-		printf("shmget(%lx, %d,...)\n", KEY_ID, G.shm_size);
+		printf("shmget(%x, %d,...)\n", (int)KEY_ID, G.shm_size);
 
 	G.shmid = shmget(KEY_ID, G.shm_size, IPC_CREAT | 0644);
 	if (G.shmid == -1) {
@@ -207,7 +223,7 @@ static void ipcsyslog_init(void)
 	}
 
 	G.shbuf = shmat(G.shmid, NULL, 0);
-	if (!G.shbuf) {
+	if (G.shbuf == (void*) -1L) { /* shmat has bizarre error return */
 		bb_perror_msg_and_die("shmat");
 	}
 
@@ -274,9 +290,11 @@ void log_to_shmem(const char *msg);
 
 
 /* Print a message to the log file. */
-static void log_locally(char *msg)
+static void log_locally(time_t now, char *msg)
 {
+#ifdef SYSLOGD_WRLOCK
 	struct flock fl;
+#endif
 	int len = strlen(msg);
 
 #if ENABLE_FEATURE_IPC_SYSLOG
@@ -286,17 +304,23 @@ static void log_locally(char *msg)
 	}
 #endif
 	if (G.logFD >= 0) {
-		time_t cur;
-		time(&cur);
-		if (G.last_log_time != cur) {
-			G.last_log_time = cur; /* reopen log file every second */
+		/* Reopen log file every second. This allows admin
+		 * to delete the file and not worry about restarting us.
+		 * This costs almost nothing since it happens
+		 * _at most_ once a second.
+		 */
+		if (!now)
+			now = time(NULL);
+		if (G.last_log_time != now) {
+			G.last_log_time = now;
 			close(G.logFD);
 			goto reopen;
 		}
 	} else {
  reopen:
-		G.logFD = device_open(G.logFilePath, O_WRONLY | O_CREAT
-					| O_NOCTTY | O_APPEND | O_NONBLOCK);
+		G.logFD = open(G.logFilePath, O_WRONLY | O_CREAT
+					| O_NOCTTY | O_APPEND | O_NONBLOCK,
+					0666);
 		if (G.logFD < 0) {
 			/* cannot open logfile? - print to /dev/console then */
 			int fd = device_open(DEV_CONSOLE, O_WRONLY | O_NOCTTY | O_NONBLOCK);
@@ -317,11 +341,13 @@ static void log_locally(char *msg)
 #endif
 	}
 
+#ifdef SYSLOGD_WRLOCK
 	fl.l_whence = SEEK_SET;
 	fl.l_start = 0;
 	fl.l_len = 1;
 	fl.l_type = F_WRLCK;
 	fcntl(G.logFD, F_SETLKW, &fl);
+#endif
 
 #if ENABLE_FEATURE_ROTATE_LOGFILE
 	if (G.logFileSize && G.isRegular && G.curFileSize > G.logFileSize) {
@@ -335,12 +361,15 @@ static void log_locally(char *msg)
 				sprintf(newFile, "%s.%d", G.logFilePath, i);
 				if (i == 0) break;
 				sprintf(oldFile, "%s.%d", G.logFilePath, --i);
+				/* ignore errors - file might be missing */
 				rename(oldFile, newFile);
 			}
 			/* newFile == "f.0" now */
 			rename(G.logFilePath, newFile);
+#ifdef SYSLOGD_WRLOCK
 			fl.l_type = F_UNLCK;
 			fcntl(G.logFD, F_SETLKW, &fl);
+#endif
 			close(G.logFD);
 			goto reopen;
 		}
@@ -348,9 +377,11 @@ static void log_locally(char *msg)
 	}
 	G.curFileSize +=
 #endif
-	                full_write(G.logFD, msg, len);
+			full_write(G.logFD, msg, len);
+#ifdef SYSLOGD_WRLOCK
 	fl.l_type = F_UNLCK;
 	fcntl(G.logFD, F_SETLKW, &fl);
+#endif
 }
 
 static void parse_fac_prio_20(int pri, char *res20)
@@ -361,13 +392,15 @@ static void parse_fac_prio_20(int pri, char *res20)
 		c_fac = facilitynames;
 		while (c_fac->c_name) {
 			if (c_fac->c_val != (LOG_FAC(pri) << 3)) {
-				c_fac++; continue;
+				c_fac++;
+				continue;
 			}
 			/* facility is found, look for prio */
 			c_pri = prioritynames;
 			while (c_pri->c_name) {
 				if (c_pri->c_val != LOG_PRI(pri)) {
-					c_pri++; continue;
+					c_pri++;
+					continue;
 				}
 				snprintf(res20, 20, "%s.%s",
 						c_fac->c_name, c_pri->c_name);
@@ -386,34 +419,45 @@ static void parse_fac_prio_20(int pri, char *res20)
 static void timestamp_and_log(int pri, char *msg, int len)
 {
 	char *timestamp;
+	time_t now;
 
+	/* Jan 18 00:11:22 msg... */
+	/* 01234567890123456 */
 	if (len < 16 || msg[3] != ' ' || msg[6] != ' '
 	 || msg[9] != ':' || msg[12] != ':' || msg[15] != ' '
 	) {
-		time_t now;
 		time(&now);
-		timestamp = ctime(&now) + 4;
+		timestamp = ctime(&now) + 4; /* skip day of week */
 	} else {
+		now = 0;
 		timestamp = msg;
 		msg += 16;
 	}
 	timestamp[15] = '\0';
 
-	/* Log message locally (to file or shared mem) */
-	if (!ENABLE_FEATURE_REMOTE_LOG || (option_mask32 & OPT_locallog)) {
-		if (LOG_PRI(pri) < G.logLevel) {
-			if (option_mask32 & OPT_small)
-				sprintf(G.printbuf, "%s %s\n", timestamp, msg);
-			else {
-				char res[20];
-				parse_fac_prio_20(pri, res);
-				sprintf(G.printbuf, "%s %s %s %s\n", timestamp, G.localHostName, res, msg);
-			}
-			log_locally(G.printbuf);
-		}
+	if (option_mask32 & OPT_small)
+		sprintf(G.printbuf, "%s %s\n", timestamp, msg);
+	else {
+		char res[20];
+		parse_fac_prio_20(pri, res);
+		sprintf(G.printbuf, "%s %.64s %s %s\n", timestamp, G.hostname, res, msg);
 	}
+
+	/* Log message locally (to file or shared mem) */
+	log_locally(now, G.printbuf);
 }
 
+static void timestamp_and_log_internal(const char *msg)
+{
+	/* -L, or no -R */
+	if (ENABLE_FEATURE_REMOTE_LOG && !(option_mask32 & OPT_locallog))
+		return;
+	timestamp_and_log(LOG_SYSLOG | LOG_INFO, (char*)msg, 0);
+}
+
+/* tmpbuf[len] is a NUL byte (set by caller), but there can be other,
+ * embedded NULs. Split messages on each of these NULs, parse prio,
+ * escape control chars and log each locally. */
 static void split_escape_and_log(char *tmpbuf, int len)
 {
 	char *p = tmpbuf;
@@ -443,25 +487,18 @@ static void split_escape_and_log(char *tmpbuf, int len)
 			*q++ = c;
 		}
 		*q = '\0';
-		/* Now log it */
-		timestamp_and_log(pri, G.parsebuf, q - G.parsebuf);
-	}
-}
 
-static void quit_signal(int sig)
-{
-	timestamp_and_log(LOG_SYSLOG | LOG_INFO, (char*)"syslogd exiting", 0);
-	puts("syslogd exiting");
-	if (ENABLE_FEATURE_IPC_SYSLOG)
-		ipcsyslog_cleanup();
-	exit(1);
+		/* Now log it */
+		if (LOG_PRI(pri) < G.logLevel)
+			timestamp_and_log(pri, G.parsebuf, q - G.parsebuf);
+	}
 }
 
 #ifdef SYSLOGD_MARK
 static void do_mark(int sig)
 {
 	if (G.markInterval) {
-		timestamp_and_log(LOG_SYSLOG | LOG_INFO, (char*)"-- MARK --", 0);
+		timestamp_and_log_internal("-- MARK --");
 		alarm(G.markInterval);
 	}
 }
@@ -495,20 +532,44 @@ static NOINLINE int create_socket(void)
 	return sock_fd;
 }
 
-static void do_syslogd(void) ATTRIBUTE_NORETURN;
+#if ENABLE_FEATURE_REMOTE_LOG
+static int try_to_resolve_remote(remoteHost_t *rh)
+{
+	if (!rh->remoteAddr) {
+		unsigned now = monotonic_sec();
+
+		/* Don't resolve name too often - DNS timeouts can be big */
+		if ((now - rh->last_dns_resolve) < DNS_WAIT_SEC)
+			return -1;
+		rh->last_dns_resolve = now;
+		rh->remoteAddr = host2sockaddr(rh->remoteHostname, 514);
+		if (!rh->remoteAddr)
+			return -1;
+	}
+	return socket(rh->remoteAddr->u.sa.sa_family, SOCK_DGRAM, 0);
+}
+#endif
+
+static void do_syslogd(void) NORETURN;
 static void do_syslogd(void)
 {
 	int sock_fd;
-
-	/* Set up signal handlers */
-	signal(SIGINT, quit_signal);
-	signal(SIGTERM, quit_signal);
-	signal(SIGQUIT, quit_signal);
-	signal(SIGHUP, SIG_IGN);
-	signal(SIGCHLD, SIG_IGN);
-#ifdef SIGCLD
-	signal(SIGCLD, SIG_IGN);
+#if ENABLE_FEATURE_REMOTE_LOG
+	llist_t *item;
 #endif
+#if ENABLE_FEATURE_SYSLOGD_DUP
+	int last_sz = -1;
+	char *last_buf;
+	char *recvbuf = G.recvbuf;
+#else
+#define recvbuf (G.recvbuf)
+#endif
+
+	/* Set up signal handlers (so that they interrupt read()) */
+	signal_no_SA_RESTART_empty_mask(SIGTERM, record_signo);
+	signal_no_SA_RESTART_empty_mask(SIGINT, record_signo);
+	//signal_no_SA_RESTART_empty_mask(SIGQUIT, record_signo);
+	signal(SIGHUP, SIG_IGN);
 #ifdef SYSLOGD_MARK
 	signal(SIGALRM, do_mark);
 	alarm(G.markInterval);
@@ -519,87 +580,121 @@ static void do_syslogd(void)
 		ipcsyslog_init();
 	}
 
-	timestamp_and_log(LOG_SYSLOG | LOG_INFO,
-			(char*)"syslogd started: BusyBox v" BB_VER, 0);
+	timestamp_and_log_internal("syslogd started: BusyBox v" BB_VER);
 
-	for (;;) {
-		size_t sz;
+	while (!bb_got_signal) {
+		ssize_t sz;
+
+#if ENABLE_FEATURE_SYSLOGD_DUP
+		last_buf = recvbuf;
+		if (recvbuf == G.recvbuf)
+			recvbuf = G.recvbuf + MAX_READ;
+		else
+			recvbuf = G.recvbuf;
+#endif
  read_again:
-		sz = safe_read(sock_fd, G.recvbuf, MAX_READ - 1);
+		sz = read(sock_fd, recvbuf, MAX_READ - 1);
 		if (sz < 0) {
-			bb_perror_msg_and_die("read from /dev/log");
+			if (!bb_got_signal)
+				bb_perror_msg("read from /dev/log");
+			break;
 		}
 
-		/* Drop trailing NULs (typically there is one NUL) */
+		/* Drop trailing '\n' and NULs (typically there is one NUL) */
 		while (1) {
 			if (sz == 0)
 				goto read_again;
 			/* man 3 syslog says: "A trailing newline is added when needed".
 			 * However, neither glibc nor uclibc do this:
 			 * syslog(prio, "test")   sends "test\0" to /dev/log,
-			 * syslog(prio, "test\n") sends "test\n\0",
+			 * syslog(prio, "test\n") sends "test\n\0".
 			 * IOW: newline is passed verbatim!
 			 * I take it to mean that it's syslogd's job
-			 * to make those look identical in the log files */
-			if (G.recvbuf[sz-1] && G.recvbuf[sz-1] != '\n')
+			 * to make those look identical in the log files. */
+			if (recvbuf[sz-1] != '\0' && recvbuf[sz-1] != '\n')
 				break;
 			sz--;
 		}
-		/* Maybe we need to add '\n' here, not later?
-		 * It looks like stock syslogd does send '\n' over network,
-		 * but we do not (see sendto below) */
-		G.recvbuf[sz] = '\0'; /* make sure it *is* NUL terminated */
-
-		/* TODO: maybe suppress duplicates? */
+#if ENABLE_FEATURE_SYSLOGD_DUP
+		if ((option_mask32 & OPT_dup) && (sz == last_sz))
+			if (memcmp(last_buf, recvbuf, sz) == 0)
+				continue;
+		last_sz = sz;
+#endif
 #if ENABLE_FEATURE_REMOTE_LOG
+		/* Stock syslogd sends it '\n'-terminated
+		 * over network, mimic that */
+		recvbuf[sz] = '\n';
+
 		/* We are not modifying log messages in any way before send */
 		/* Remote site cannot trust _us_ anyway and need to do validation again */
-		if (G.remoteAddr) {
-			if (-1 == G.remoteFD) {
-				G.remoteFD = socket(G.remoteAddr->sa.sa_family, SOCK_DGRAM, 0);
+		for (item = G.remoteHosts; item != NULL; item = item->link) {
+			remoteHost_t *rh = (remoteHost_t *)item->data;
+
+			if (rh->remoteFD == -1) {
+				rh->remoteFD = try_to_resolve_remote(rh);
+				if (rh->remoteFD == -1)
+					continue;
 			}
-			if (-1 != G.remoteFD) {
-				/* send message to remote logger, ignore possible error */
-				sendto(G.remoteFD, G.recvbuf, sz, MSG_DONTWAIT,
-					&G.remoteAddr->sa, G.remoteAddr->len);
-			}
+			/* Send message to remote logger, ignore possible error */
+			/* TODO: on some errors, close and set G.remoteFD to -1
+			 * so that DNS resolution and connect is retried? */
+			sendto(rh->remoteFD, recvbuf, sz+1, MSG_DONTWAIT,
+				&(rh->remoteAddr->u.sa), rh->remoteAddr->len);
 		}
 #endif
-		split_escape_and_log(G.recvbuf, sz);
-	} /* for */
+		if (!ENABLE_FEATURE_REMOTE_LOG || (option_mask32 & OPT_locallog)) {
+			recvbuf[sz] = '\0'; /* ensure it *is* NUL terminated */
+			split_escape_and_log(recvbuf, sz);
+		}
+	} /* while (!bb_got_signal) */
+
+	timestamp_and_log_internal("syslogd exiting");
+	puts("syslogd exiting");
+	if (ENABLE_FEATURE_IPC_SYSLOG)
+		ipcsyslog_cleanup();
+	kill_myself_with_sig(bb_got_signal);
+#undef recvbuf
 }
 
 int syslogd_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int syslogd_main(int argc, char **argv)
+int syslogd_main(int argc UNUSED_PARAM, char **argv)
 {
+	int opts;
 	char OPTION_DECL;
-	char *p;
+#if ENABLE_FEATURE_REMOTE_LOG
+	llist_t *remoteAddrList = NULL;
+#endif
 
-	PTR_TO_GLOBALS = memcpy(xzalloc(sizeof(G)), &init_data, sizeof(init_data));
+	INIT_G();
 
-	/* do normal option parsing */
-	opt_complementary = "=0"; /* no non-option params */
-	getopt32(argv, OPTION_STR, OPTION_PARAM);
+	/* No non-option params, -R can occur multiple times */
+	opt_complementary = "=0" IF_FEATURE_REMOTE_LOG(":R::");
+	opts = getopt32(argv, OPTION_STR, OPTION_PARAM);
+#if ENABLE_FEATURE_REMOTE_LOG
+	while (remoteAddrList) {
+		remoteHost_t *rh = xzalloc(sizeof(*rh));
+		rh->remoteHostname = llist_pop(&remoteAddrList);
+		rh->remoteFD = -1;
+		rh->last_dns_resolve = monotonic_sec() - DNS_WAIT_SEC - 1;
+		llist_add_to(&G.remoteHosts, rh);
+	}
+#endif
+
 #ifdef SYSLOGD_MARK
-	if (option_mask32 & OPT_mark) // -m
+	if (opts & OPT_mark) // -m
 		G.markInterval = xatou_range(opt_m, 0, INT_MAX/60) * 60;
 #endif
-	//if (option_mask32 & OPT_nofork) // -n
-	//if (option_mask32 & OPT_outfile) // -O
-	if (option_mask32 & OPT_loglevel) // -l
+	//if (opts & OPT_nofork) // -n
+	//if (opts & OPT_outfile) // -O
+	if (opts & OPT_loglevel) // -l
 		G.logLevel = xatou_range(opt_l, 1, 8);
-	//if (option_mask32 & OPT_small) // -S
+	//if (opts & OPT_small) // -S
 #if ENABLE_FEATURE_ROTATE_LOGFILE
-	if (option_mask32 & OPT_filesize) // -s
+	if (opts & OPT_filesize) // -s
 		G.logFileSize = xatou_range(opt_s, 0, INT_MAX/1024) * 1024;
-	if (option_mask32 & OPT_rotatecnt) // -b
+	if (opts & OPT_rotatecnt) // -b
 		G.logFileRotate = xatou_range(opt_b, 0, 99);
-#endif
-#if ENABLE_FEATURE_REMOTE_LOG
-	if (option_mask32 & OPT_remotelog) { // -R
-		G.remoteAddr = xhost2sockaddr(opt_R, 514);
-	}
-	//if (option_mask32 & OPT_locallog) // -L
 #endif
 #if ENABLE_FEATURE_IPC_SYSLOG
 	if (opt_C) // -Cn
@@ -607,21 +702,29 @@ int syslogd_main(int argc, char **argv)
 #endif
 
 	/* If they have not specified remote logging, then log locally */
-	if (ENABLE_FEATURE_REMOTE_LOG && !(option_mask32 & OPT_remotelog))
+	if (ENABLE_FEATURE_REMOTE_LOG && !(opts & OPT_remotelog)) // -R
 		option_mask32 |= OPT_locallog;
 
 	/* Store away localhost's name before the fork */
-	gethostname(G.localHostName, sizeof(G.localHostName));
-	p = strchr(G.localHostName, '.');
-	if (p) {
-		*p = '\0';
-	}
+	G.hostname = safe_gethostname();
+	*strchrnul(G.hostname, '.') = '\0';
 
-	if (!(option_mask32 & OPT_nofork)) {
+	if (!(opts & OPT_nofork)) {
 		bb_daemonize_or_rexec(DAEMON_CHDIR_ROOT, argv);
 	}
-	umask(0);
+	//umask(0); - why??
 	write_pidfile("/var/run/syslogd.pid");
 	do_syslogd();
 	/* return EXIT_SUCCESS; */
 }
+
+/* Clean up. Needed because we are included from syslogd_and_logger.c */
+#undef DEBUG
+#undef SYSLOGD_MARK
+#undef SYSLOGD_WRLOCK
+#undef G
+#undef GLOBALS
+#undef INIT_G
+#undef OPTION_STR
+#undef OPTION_DECL
+#undef OPTION_PARAM

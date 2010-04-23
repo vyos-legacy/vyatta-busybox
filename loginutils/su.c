@@ -8,11 +8,28 @@
 #include "libbb.h"
 #include <syslog.h>
 
+#if ENABLE_FEATURE_SU_CHECKS_SHELLS
+/* Return 1 if SHELL is a restricted shell (one not returned by
+   getusershell), else 0, meaning it is a standard shell.  */
+static int restricted_shell(const char *shell)
+{
+	char *line;
+
+	/*setusershell(); - getusershell does it itself*/
+	while ((line = getusershell()) != NULL) {
+		if (/* *line != '#' && */ strcmp(line, shell) == 0)
+			return 0;
+	}
+	endusershell();
+	return 1;
+}
+#endif
+
 #define SU_OPT_mp (3)
 #define SU_OPT_l (4)
 
 int su_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int su_main(int argc, char **argv)
+int su_main(int argc UNUSED_PARAM, char **argv)
 {
 	unsigned flags;
 	char *opt_shell = NULL;
@@ -24,35 +41,44 @@ int su_main(int argc, char **argv)
 	char *old_user;
 
 	flags = getopt32(argv, "mplc:s:", &opt_command, &opt_shell);
-	argc -= optind;
+	//argc -= optind;
 	argv += optind;
 
-	if (argc && LONE_DASH(argv[0])) {
+	if (argv[0] && LONE_DASH(argv[0])) {
 		flags |= SU_OPT_l;
-		argc--;
 		argv++;
 	}
 
 	/* get user if specified */
-	if (argc) {
+	if (argv[0]) {
 		opt_username = argv[0];
-		//argc--; - not used below anyway
 		argv++;
 	}
 
 	if (ENABLE_FEATURE_SU_SYSLOG) {
 		/* The utmp entry (via getlogin) is probably the best way to identify
-		the user, especially if someone su's from a su-shell.
-		But getlogin can fail -- usually due to lack of utmp entry.
-		in this case resort to getpwuid.  */
-		old_user = xstrdup(USE_FEATURE_UTMP(getlogin() ? : ) (pw = getpwuid(cur_uid)) ? pw->pw_name : "");
-		tty = ttyname(2) ? : "none";
+		 * the user, especially if someone su's from a su-shell.
+		 * But getlogin can fail -- usually due to lack of utmp entry.
+		 * in this case resort to getpwuid.  */
+		const char *user;
+#if ENABLE_FEATURE_UTMP
+		char user_buf[64];
+		user = user_buf;
+		if (getlogin_r(user_buf, sizeof(user_buf)) != 0)
+#endif
+		{
+			pw = getpwuid(cur_uid);
+			user = pw ? pw->pw_name : "";
+		}
+		old_user = xstrdup(user);
+		tty = xmalloc_ttyname(2);
+		if (!tty) {
+			tty = "none";
+		}
 		openlog(applet_name, 0, LOG_AUTH);
 	}
 
-	pw = getpwnam(opt_username);
-	if (!pw)
-		bb_error_msg_and_die("unknown id: %s", opt_username);
+	pw = xgetpwnam(opt_username);
 
 	/* Make sure pw->pw_shell is non-NULL.  It may be NULL when NEW_USER
 	   is a username that is retrieved via NIS (YP), but that doesn't have
@@ -80,7 +106,7 @@ int su_main(int argc, char **argv)
 		opt_shell = getenv("SHELL");
 
 #if ENABLE_FEATURE_SU_CHECKS_SHELLS
-	if (opt_shell && cur_uid && restricted_shell(pw->pw_shell)) {
+	if (opt_shell && cur_uid != 0 && restricted_shell(pw->pw_shell)) {
 		/* The user being su'd to has a nonstandard shell, and so is
 		   probably a uucp account or has restricted access.  Don't
 		   compromise the account by allowing access with a standard
@@ -93,9 +119,11 @@ int su_main(int argc, char **argv)
 		opt_shell = pw->pw_shell;
 
 	change_identity(pw);
-	/* setup_environment params: shell, loginshell, changeenv, pw */
-	setup_environment(opt_shell, flags & SU_OPT_l, !(flags & SU_OPT_mp), pw);
-	USE_SELINUX(set_current_security_context(NULL);)
+	setup_environment(opt_shell,
+			((flags & SU_OPT_l) / SU_OPT_l * SETUP_ENV_CLEARENV)
+			+ (!(flags & SU_OPT_mp) * SETUP_ENV_CHANGEENV),
+			pw);
+	IF_SELINUX(set_current_security_context(NULL);)
 
 	/* Never returns */
 	run_shell(opt_shell, flags & SU_OPT_l, opt_command, (const char**)argv);

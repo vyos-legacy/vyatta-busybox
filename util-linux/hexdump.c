@@ -9,26 +9,22 @@
  * Licensed under GPLv2 or later, see file License in this tarball for details.
  */
 
-#include <getopt.h>
 #include "libbb.h"
 #include "dump.h"
 
 /* This is a NOEXEC applet. Be very careful! */
 
-
-static void bb_dump_addfile(char *name)
+static void bb_dump_addfile(dumper_t *dumper, char *name)
 {
 	char *p;
 	FILE *fp;
 	char *buf;
 
-	fp = xfopen(name, "r");
-
-	while ((buf = xmalloc_getline(fp)) != NULL) {
+	fp = xfopen_for_read(name);
+	while ((buf = xmalloc_fgetline(fp)) != NULL) {
 		p = skip_whitespace(buf);
-
 		if (*p && (*p != '#')) {
-			bb_dump_add(p);
+			bb_dump_add(dumper, p);
 		}
 		free(buf);
 	}
@@ -45,18 +41,19 @@ static const char *const add_strings[] = {
 
 static const char add_first[] ALIGN1 = "\"%07.7_Ax\n\"";
 
-static const char hexdump_opts[] ALIGN1 = "bcdoxCe:f:n:s:v" USE_FEATURE_HEXDUMP_REVERSE("R");
+static const char hexdump_opts[] ALIGN1 = "bcdoxCe:f:n:s:v" IF_FEATURE_HEXDUMP_REVERSE("R");
 
 static const struct suffix_mult suffixes[] = {
 	{ "b", 512 },
 	{ "k", 1024 },
 	{ "m", 1024*1024 },
-	{ }
+	{ "", 0 }
 };
 
 int hexdump_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int hexdump_main(int argc, char **argv)
 {
+	dumper_t *dumper = alloc_dumper();
 	const char *p;
 	int ch;
 #if ENABLE_FEATURE_HEXDUMP_REVERSE
@@ -64,45 +61,42 @@ int hexdump_main(int argc, char **argv)
 	smallint rdump = 0;
 #endif
 
-	bb_dump_vflag = FIRST;
-	bb_dump_length = -1;
-
 	if (ENABLE_HD && !applet_name[2]) { /* we are "hd" */
 		ch = 'C';
 		goto hd_applet;
 	}
 
 	/* We cannot use getopt32: in hexdump options are cumulative.
-	 * E.g. hexdump -C -C file should dump each line twice */
+	 * E.g. "hexdump -C -C file" should dump each line twice */
 	while ((ch = getopt(argc, argv, hexdump_opts)) > 0) {
 		p = strchr(hexdump_opts, ch);
 		if (!p)
 			bb_show_usage();
 		if ((p - hexdump_opts) < 5) {
-			bb_dump_add(add_first);
-			bb_dump_add(add_strings[(int)(p - hexdump_opts)]);
+			bb_dump_add(dumper, add_first);
+			bb_dump_add(dumper, add_strings[(int)(p - hexdump_opts)]);
 		}
 		/* Save a little bit of space below by omitting the 'else's. */
 		if (ch == 'C') {
  hd_applet:
-			bb_dump_add("\"%08.8_Ax\n\"");
-			bb_dump_add("\"%08.8_ax  \" 8/1 \"%02x \" \"  \" 8/1 \"%02x \" ");
-			bb_dump_add("\"  |\" 16/1 \"%_p\" \"|\\n\"");
+			bb_dump_add(dumper, "\"%08.8_Ax\n\"");
+			bb_dump_add(dumper, "\"%08.8_ax  \" 8/1 \"%02x \" \"  \" 8/1 \"%02x \" ");
+			bb_dump_add(dumper, "\"  |\" 16/1 \"%_p\" \"|\\n\"");
 		}
 		if (ch == 'e') {
-			bb_dump_add(optarg);
+			bb_dump_add(dumper, optarg);
 		} /* else */
 		if (ch == 'f') {
-			bb_dump_addfile(optarg);
+			bb_dump_addfile(dumper, optarg);
 		} /* else */
 		if (ch == 'n') {
-			bb_dump_length = xatoi_u(optarg);
+			dumper->dump_length = xatoi_u(optarg);
 		} /* else */
-		if (ch == 's') {
-			bb_dump_skip = xatoul_range_sfx(optarg, 0, LONG_MAX, suffixes);
+		if (ch == 's') { /* compat: -s accepts hex numbers too */
+			dumper->dump_skip = xstrtoul_range_sfx(optarg, /*base:*/ 0, /*lo:*/ 0, /*hi:*/ LONG_MAX, suffixes);
 		} /* else */
 		if (ch == 'v') {
-			bb_dump_vflag = ALL;
+			dumper->dump_vflag = ALL;
 		}
 #if ENABLE_FEATURE_HEXDUMP_REVERSE
 		if (ch == 'R') {
@@ -111,18 +105,18 @@ int hexdump_main(int argc, char **argv)
 #endif
 	}
 
-	if (!bb_dump_fshead) {
-		bb_dump_add(add_first);
-		bb_dump_add("\"%07.7_ax \" 8/2 \"%04x \" \"\\n\"");
+	if (!dumper->fshead) {
+		bb_dump_add(dumper, add_first);
+		bb_dump_add(dumper, "\"%07.7_ax \" 8/2 \"%04x \" \"\\n\"");
 	}
 
 	argv += optind;
 
 #if !ENABLE_FEATURE_HEXDUMP_REVERSE
-	return bb_dump_dump(argv);
+	return bb_dump_dump(dumper, argv);
 #else
 	if (!rdump) {
-		return bb_dump_dump(argv);
+		return bb_dump_dump(dumper, argv);
 	}
 
 	/* -R: reverse of 'hexdump -Cv' */
@@ -134,9 +128,9 @@ int hexdump_main(int argc, char **argv)
 
 	do {
 		char *buf;
-		fp = xfopen(*argv, "r");
+		fp = xfopen_for_read(*argv);
  jump_in:
-		while ((buf = xmalloc_getline(fp)) != NULL) {
+		while ((buf = xmalloc_fgetline(fp)) != NULL) {
 			p = buf;
 			while (1) {
 				/* skip address or previous byte */

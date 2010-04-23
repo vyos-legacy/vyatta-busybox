@@ -23,7 +23,7 @@
 #include "libbb.h"
 #include "coreutils.h"
 
-mode_t getopt_mk_fifo_nod(int argc, char **argv)
+mode_t FAST_FUNC getopt_mk_fifo_nod(char **argv)
 {
 	mode_t mode = 0666;
 	char *smode = NULL;
@@ -31,7 +31,7 @@ mode_t getopt_mk_fifo_nod(int argc, char **argv)
 	security_context_t scontext;
 #endif
 	int opt;
-	opt = getopt32(argv, "m:" USE_SELINUX("Z:"), &smode USE_SELINUX(,&scontext));
+	opt = getopt32(argv, "m:" IF_SELINUX("Z:"), &smode IF_SELINUX(,&scontext));
 	if (opt & 1) {
 		if (bb_parse_mode(smode, &mode))
 			umask(0);
