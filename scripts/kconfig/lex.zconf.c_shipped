@@ -784,6 +784,11 @@ void new_string(void)
 void append_string(const char *str, int size)
 {
 	int new_size = text_size + size + 1;
+	if (size > 70) {
+		fprintf (stderr, "%s:%d error: Overlong line\n",
+		current_file->name, current_file->lineno);
+	}
+
 	if (new_size > text_asize) {
 		new_size += START_STRSIZE - 1;
 		new_size &= -START_STRSIZE;
@@ -841,6 +846,9 @@ static void yy_flex_strncpy (char *,yyconst char *,int );
 #ifdef YY_NEED_STRLEN
 static int yy_flex_strlen (yyconst char * );
 #endif
+
+//bbox: suppressing "defined but not used" warning
+#define YY_NO_INPUT 1
 
 #ifndef YY_NO_INPUT
 

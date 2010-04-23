@@ -1,7 +1,7 @@
 /* Based on netcat 1.10 RELEASE 960320 written by hobbit@avian.org.
  * Released into public domain by the author.
  *
- * Copyright (C) 2007 Denis Vlasenko.
+ * Copyright (C) 2007 Denys Vlasenko.
  *
  * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
@@ -77,7 +77,7 @@ struct globals {
 	unsigned wrote_out;          /* total stdout bytes */
 	unsigned wrote_net;          /* total net bytes */
 #endif
-	/* ouraddr is never NULL and goes thru three states as we progress:
+	/* ouraddr is never NULL and goes through three states as we progress:
 	 1 - local address before bind (IP/port possibly zero)
 	 2 - local address after bind (port is nonzero)
 	 3 - local address after connect??/recv/accept (IP and port are nonzero) */
@@ -97,7 +97,6 @@ struct globals {
 };
 
 #define G (*ptr_to_globals)
-
 #define wrote_out  (G.wrote_out )
 #define wrote_net  (G.wrote_net )
 #define ouraddr    (G.ouraddr   )
@@ -115,6 +114,10 @@ struct globals {
 #else
 #define o_interval 0
 #endif
+#define INIT_G() do { \
+	SET_PTR_TO_GLOBALS(xzalloc(sizeof(G))); \
+} while (0)
+
 
 /* Must match getopt32 call! */
 enum {
@@ -149,7 +152,7 @@ enum {
 /* Debug: squirt whatever message and sleep a bit so we can see it go by. */
 /* Beware: writes to stdOUT... */
 #if 0
-#define Debug(...) do { printf(__VA_ARGS__); printf("\n"); fflush(stdout); sleep(1); } while (0)
+#define Debug(...) do { printf(__VA_ARGS__); printf("\n"); fflush_all(); sleep(1); } while (0)
 #else
 #define Debug(...) do { } while (0)
 #endif
@@ -163,7 +166,7 @@ static void catch(int sig)
 	if (o_verbose > 1)                /* normally we don't care */
 		fprintf(stderr, SENT_N_RECV_M, wrote_net, wrote_out);
 	fprintf(stderr, "punt!\n");
-	exit(1);
+	kill_myself_with_sig(sig);
 }
 
 /* unarm  */
@@ -174,7 +177,7 @@ static void unarm(void)
 }
 
 /* timeout and other signal handling cruft */
-static void tmtravel(int sig)
+static void tmtravel(int sig UNUSED_PARAM)
 {
 	unarm();
 	longjmp(jbuf, 1);
@@ -219,7 +222,7 @@ Debug("findline returning whole thing: %d", siz);
  that would be security-critical, which is why it's ifdefed out by default.
  Use at your own hairy risk; if you leave shells lying around behind open
  listening ports you deserve to lose!! */
-static int doexec(char **proggie) ATTRIBUTE_NORETURN;
+static int doexec(char **proggie) NORETURN;
 static int doexec(char **proggie)
 {
 	xmove_fd(netfd, 0);
@@ -243,7 +246,7 @@ static int connect_w_timeout(int fd)
 	/* wrap connect inside a timer, and hit it */
 	arm(o_wait);
 	if (setjmp(jbuf) == 0) {
-		rr = connect(fd, &themaddr->sa, themaddr->len);
+		rr = connect(fd, &themaddr->u.sa, themaddr->len);
 		unarm();
 	} else { /* setjmp: connect failed... */
 		rr = -1;
@@ -275,10 +278,10 @@ static void dolisten(void)
 	 random unknown port is probably not very useful without "netstat". */
 	if (o_verbose) {
 		char *addr;
-		rr = getsockname(netfd, &ouraddr->sa, &ouraddr->len);
-		if (rr < 0)
-			bb_perror_msg_and_die("getsockname after bind");
-		addr = xmalloc_sockaddr2dotted(&ouraddr->sa);
+		getsockname(netfd, &ouraddr->u.sa, &ouraddr->len);
+		//if (rr < 0)
+		//	bb_perror_msg_and_die("getsockname after bind");
+		addr = xmalloc_sockaddr2dotted(&ouraddr->u.sa);
 		fprintf(stderr, "listening on %s ...\n", addr);
 		free(addr);
 	}
@@ -306,7 +309,7 @@ static void dolisten(void)
 		remend.len = LSA_SIZEOF_SA;
 		if (themaddr) {
 			remend = *themaddr;
-			xconnect(netfd, &themaddr->sa, themaddr->len);
+			xconnect(netfd, &themaddr->u.sa, themaddr->len);
 		}
 		/* peek first packet and remember peer addr */
 		arm(o_wait);                /* might as well timeout this, too */
@@ -314,7 +317,7 @@ static void dolisten(void)
 			/* (*ouraddr) is prefilled with "default" address */
 			/* and here we block... */
 			rr = recv_from_to(netfd, NULL, 0, MSG_PEEK, /*was bigbuf_net, BIGSIZ*/
-				&remend.sa, &ouraddr->sa, ouraddr->len);
+				&remend.u.sa, &ouraddr->u.sa, ouraddr->len);
 			if (rr < 0)
 				bb_perror_msg_and_die("recvfrom");
 			unarm();
@@ -323,30 +326,43 @@ static void dolisten(void)
 /* Now we learned *to which IP* peer has connected, and we want to anchor
 our socket on it, so that our outbound packets will have correct local IP.
 Unfortunately, bind() on already bound socket will fail now (EINVAL):
-	xbind(netfd, &ouraddr->sa, ouraddr->len);
+	xbind(netfd, &ouraddr->u.sa, ouraddr->len);
 Need to read the packet, save data, close this socket and
 create new one, and bind() it. TODO */
 		if (!themaddr)
-			xconnect(netfd, &remend.sa, ouraddr->len);
+			xconnect(netfd, &remend.u.sa, ouraddr->len);
 	} else {
 		/* TCP */
 		arm(o_wait); /* wrap this in a timer, too; 0 = forever */
 		if (setjmp(jbuf) == 0) {
  again:
 			remend.len = LSA_SIZEOF_SA;
-			rr = accept(netfd, &remend.sa, &remend.len);
+			rr = accept(netfd, &remend.u.sa, &remend.len);
 			if (rr < 0)
 				bb_perror_msg_and_die("accept");
-			if (themaddr && memcmp(&remend.sa, &themaddr->sa, remend.len) != 0) {
-				/* nc 1.10 bails out instead, and its error message
-				 * is not suppressed by o_verbose */
-				if (o_verbose) {
-					char *remaddr = xmalloc_sockaddr2dotted(&remend.sa);
-					bb_error_msg("connect from wrong ip/port %s ignored", remaddr);
-					free(remaddr);
+			if (themaddr) {
+				int sv_port, port, r;
+
+				sv_port = get_nport(&remend.u.sa); /* save */
+				port = get_nport(&themaddr->u.sa);
+				if (port == 0) {
+					/* "nc -nl -p LPORT RHOST" (w/o RPORT!):
+					 * we should accept any remote port */
+					set_nport(&remend, 0); /* blot out remote port# */
 				}
-				close(rr);
-				goto again;
+				r = memcmp(&remend.u.sa, &themaddr->u.sa, remend.len);
+				set_nport(&remend, sv_port); /* restore */
+				if (r != 0) {
+					/* nc 1.10 bails out instead, and its error message
+					 * is not suppressed by o_verbose */
+					if (o_verbose) {
+						char *remaddr = xmalloc_sockaddr2dotted(&remend.u.sa);
+						bb_error_msg("connect from wrong ip/port %s ignored", remaddr);
+						free(remaddr);
+					}
+					close(rr);
+					goto again;
+				}
 			}
 			unarm();
 		} else
@@ -356,9 +372,9 @@ create new one, and bind() it. TODO */
 		 doing a listen-on-any on a multihomed machine.  This allows one to
 		 offer different services via different alias addresses, such as the
 		 "virtual web site" hack. */
-		rr = getsockname(netfd, &ouraddr->sa, &ouraddr->len);
-		if (rr < 0)
-			bb_perror_msg_and_die("getsockname after accept");
+		getsockname(netfd, &ouraddr->u.sa, &ouraddr->len);
+		//if (rr < 0)
+		//	bb_perror_msg_and_die("getsockname after accept");
 	}
 
 	if (o_verbose) {
@@ -371,12 +387,10 @@ create new one, and bind() it. TODO */
 	 thing to emerge after all the intervening crud.  Doesn't work for UDP on
 	 any machines I've tested, but feel free to surprise me. */
 		char optbuf[40];
-		int x = sizeof(optbuf);
+		socklen_t x = sizeof(optbuf);
 
 		rr = getsockopt(netfd, IPPROTO_IP, IP_OPTIONS, optbuf, &x);
-		if (rr < 0)
-			bb_perror_msg("getsockopt failed");
-		else if (x) {    /* we've got options, lessee em... */
+		if (rr >= 0 && x) {    /* we've got options, lessee em... */
 			bin2hex(bigbuf_net, optbuf, x);
 			bigbuf_net[2*x] = '\0';
 			fprintf(stderr, "IP options: %s\n", bigbuf_net);
@@ -393,9 +407,9 @@ create new one, and bind() it. TODO */
 	 accept the connection and then reject undesireable ones by closing.
 	 In other words, we need a TCP MSG_PEEK. */
 	/* bbox: removed most of it */
-		lcladdr = xmalloc_sockaddr2dotted(&ouraddr->sa);
-		remaddr = xmalloc_sockaddr2dotted(&remend.sa);
-		remhostname = o_nflag ? remaddr : xmalloc_sockaddr2host(&remend.sa);
+		lcladdr = xmalloc_sockaddr2dotted(&ouraddr->u.sa);
+		remaddr = xmalloc_sockaddr2dotted(&remend.u.sa);
+		remhostname = o_nflag ? remaddr : xmalloc_sockaddr2host(&remend.u.sa);
 		fprintf(stderr, "connect to %s from %s (%s)\n",
 				lcladdr, remhostname, remaddr);
 		free(lcladdr);
@@ -433,7 +447,7 @@ static int udptest(void)
 	/* Set a temporary connect timeout, so packet filtration doesnt cause
 	 us to hang forever, and hit it */
 		o_wait = 5;                     /* enough that we'll notice?? */
-		rr = xsocket(ouraddr->sa.sa_family, SOCK_STREAM, 0);
+		rr = xsocket(ouraddr->u.sa.sa_family, SOCK_STREAM, 0);
 		set_nport(themaddr, htons(SLEAZE_PORT));
 		connect_w_timeout(rr);
 		/* don't need to restore themaddr's port, it's not used anymore */
@@ -484,7 +498,7 @@ static void oprint(int direction, unsigned char *p, unsigned bc)
 			memset(&stage[11], ' ', 16*3);
 			x = bc;
 		}
-		sprintf(&stage[1], " %8.8x ", obc);  /* xxx: still slow? */
+		sprintf((char *)&stage[1], " %8.8x ", obc);  /* xxx: still slow? */
 		bc -= x;          /* fix current count */
 		obc += x;         /* fix current offset */
 		op = &stage[11];  /* where hex starts */
@@ -559,7 +573,7 @@ static int readwrite(void)
 	/* if we have a timeout AND stdin is closed AND we haven't heard anything
 	 from the net during that time, assume it's dead and close it too. */
 		if (rr == 0) {
-			if (!FD_ISSET(0, &ding1))
+			if (!FD_ISSET(STDIN_FILENO, &ding1))
 				netretry--;                        /* we actually try a coupla times. */
 			if (!netretry) {
 				if (o_verbose > 1)                /* normally we don't care */
@@ -594,13 +608,16 @@ Debug("got %d from the net, errno %d", rr, errno);
 			goto shovel;
 
 	/* okay, suck more stdin */
-		if (FD_ISSET(0, &ding2)) {                /* stdin: ding! */
-			rr = read(0, bigbuf_in, BIGSIZ);
+		if (FD_ISSET(STDIN_FILENO, &ding2)) {                /* stdin: ding! */
+			rr = read(STDIN_FILENO, bigbuf_in, BIGSIZ);
 	/* Considered making reads here smaller for UDP mode, but 8192-byte
 	 mobygrams are kinda fun and exercise the reassembler. */
 			if (rr <= 0) {                        /* at end, or fukt, or ... */
-				FD_CLR(0, &ding1);                /* disable and close stdin */
-				close(0);
+				FD_CLR(STDIN_FILENO, &ding1);                /* disable and close stdin */
+				close(STDIN_FILENO);
+// Does it make sense to shutdown(net_fd, SHUT_WR)
+// to let other side know that we won't write anything anymore?
+// (and what about keeping compat if we do that?)
 			} else {
 				rzleft = rr;
 				zp = bigbuf_in;
@@ -622,10 +639,10 @@ Debug("got %d from the net, errno %d", rr, errno);
 			return 1;
 		}
 		if (rnleft) {
-			rr = write(1, np, rnleft);
+			rr = write(STDOUT_FILENO, np, rnleft);
 			if (rr > 0) {
-				if (o_ofile)
-					oprint('<', np, rr);                /* log the stdout */
+				if (o_ofile) /* log the stdout */
+					oprint('<', (unsigned char *)np, rr);
 				np += rr;                        /* fix up ptrs and whatnot */
 				rnleft -= rr;                        /* will get sanity-checked above */
 				wrote_out += rr;                /* global count */
@@ -639,8 +656,8 @@ Debug("wrote %d to stdout, errno %d", rr, errno);
 				rr = rzleft;
 			rr = write(netfd, zp, rr);        /* one line, or the whole buffer */
 			if (rr > 0) {
-				if (o_ofile)
-					oprint('>', zp, rr);                /* log what got sent */
+				if (o_ofile) /* log what got sent */
+					oprint('>', (unsigned char *)zp, rr);
 				zp += rr;
 				rzleft -= rr;
 				wrote_net += rr;                /* global count */
@@ -669,34 +686,35 @@ Debug("wrote %d to net, errno %d", rr, errno);
 
 /* main: now we pull it all together... */
 int nc_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int nc_main(int argc, char **argv)
+int nc_main(int argc UNUSED_PARAM, char **argv)
 {
-	char *str_p, *str_s, *str_w;
-	USE_NC_EXTRA(char *str_i, *str_o;)
+	char *str_p, *str_s;
+	IF_NC_EXTRA(char *str_i, *str_o;)
 	char *themdotted = themdotted; /* gcc */
 	char **proggie;
 	int x;
 	unsigned o_lport = 0;
 
-	/* I was in this barbershop quartet in Skokie IL ... */
-	/* round up the usual suspects, i.e. malloc up all the stuff we need */
-	PTR_TO_GLOBALS = xzalloc(sizeof(G));
+	INIT_G();
 
 	/* catch a signal or two for cleanup */
-	signal(SIGINT, catch);
-	signal(SIGQUIT, catch);
-	signal(SIGTERM, catch);
+	bb_signals(0
+		+ (1 << SIGINT)
+		+ (1 << SIGQUIT)
+		+ (1 << SIGTERM)
+		, catch);
 	/* and suppress others... */
+	bb_signals(0
 #ifdef SIGURG
-	signal(SIGURG, SIG_IGN);
+		+ (1 << SIGURG)
 #endif
-	signal(SIGPIPE, SIG_IGN); /* important! */
+		+ (1 << SIGPIPE) /* important! */
+		, SIG_IGN);
 
 	proggie = argv;
 	while (*++proggie) {
 		if (strcmp(*proggie, "-e") == 0) {
 			*proggie = NULL;
-			argc = proggie - argv;
 			proggie++;
 			goto e_found;
 		}
@@ -705,11 +723,11 @@ int nc_main(int argc, char **argv)
  e_found:
 
 	// -g -G -t -r deleted, unimplemented -a deleted too
-	opt_complementary = "?2:vv"; /* max 2 params, -v is a counter */
-	getopt32(argv, "hnp:s:uvw:" USE_NC_SERVER("l")
-			USE_NC_EXTRA("i:o:z"),
-			&str_p, &str_s, &str_w
-			USE_NC_EXTRA(, &str_i, &str_o, &o_verbose));
+	opt_complementary = "?2:vv:w+"; /* max 2 params; -v is a counter; -w N */
+	getopt32(argv, "hnp:s:uvw:" IF_NC_SERVER("l")
+			IF_NC_EXTRA("i:o:z"),
+			&str_p, &str_s, &o_wait
+			IF_NC_EXTRA(, &str_i, &str_o, &o_verbose));
 	argv += optind;
 #if ENABLE_NC_EXTRA
 	if (option_mask32 & OPT_i) /* line-interval time */
@@ -726,9 +744,7 @@ int nc_main(int argc, char **argv)
 	//if (option_mask32 & OPT_r) /* randomize various things */
 	//if (option_mask32 & OPT_u) /* use UDP */
 	//if (option_mask32 & OPT_v) /* verbose */
-	if (option_mask32 & OPT_w) { /* wait time */
-		o_wait = xatoi_u(str_w);
-	}
+	//if (option_mask32 & OPT_w) /* wait time */
 	//if (option_mask32 & OPT_z) /* little or no data xfer */
 
 	/* We manage our fd's so that they are never 0,1,2 */
@@ -746,12 +762,17 @@ int nc_main(int argc, char **argv)
 	if (option_mask32 & OPT_s) { /* local address */
 		/* if o_lport is still 0, then we will use random port */
 		ouraddr = xhost2sockaddr(str_s, o_lport);
-		x = xsocket(ouraddr->sa.sa_family, x, 0);
+#ifdef BLOAT
+		/* prevent spurious "UDP listen needs !0 port" */
+		o_lport = get_nport(ouraddr);
+		o_lport = ntohs(o_lport);
+#endif
+		x = xsocket(ouraddr->u.sa.sa_family, x, 0);
 	} else {
 		/* We try IPv6, then IPv4, unless addr family is
 		 * implicitly set by way of remote addr/port spec */
 		x = xsocket_type(&ouraddr,
-				USE_FEATURE_IPV6((themaddr ? themaddr->sa.sa_family : AF_UNSPEC),)
+				(themaddr ? themaddr->u.sa.sa_family : AF_UNSPEC),
 				x);
 		if (o_lport)
 			set_nport(ouraddr, htons(o_lport));
@@ -760,20 +781,27 @@ int nc_main(int argc, char **argv)
 	setsockopt_reuseaddr(netfd);
 	if (o_udpmode)
 		socket_want_pktinfo(netfd);
-	xbind(netfd, &ouraddr->sa, ouraddr->len);
+	if (!ENABLE_FEATURE_UNIX_LOCAL
+	 || o_listen
+	 || ouraddr->u.sa.sa_family != AF_UNIX
+	) {
+		xbind(netfd, &ouraddr->u.sa, ouraddr->len);
+	}
 #if 0
 	setsockopt(netfd, SOL_SOCKET, SO_RCVBUF, &o_rcvbuf, sizeof o_rcvbuf);
 	setsockopt(netfd, SOL_SOCKET, SO_SNDBUF, &o_sndbuf, sizeof o_sndbuf);
 #endif
 
+#ifdef BLOAT
 	if (OPT_l && (option_mask32 & (OPT_u|OPT_l)) == (OPT_u|OPT_l)) {
 		/* apparently UDP can listen ON "port 0",
 		 but that's not useful */
 		if (!o_lport)
 			bb_error_msg_and_die("UDP listen needs nonzero -p port");
 	}
+#endif
 
-	FD_SET(0, &ding1);                        /* stdin *is* initially open */
+	FD_SET(STDIN_FILENO, &ding1);                        /* stdin *is* initially open */
 	if (proggie) {
 		close(0); /* won't need stdin */
 		option_mask32 &= ~OPT_o; /* -o with -e is meaningless! */
@@ -796,7 +824,7 @@ int nc_main(int argc, char **argv)
 
 		remend = *themaddr;
 		if (o_verbose)
-			themdotted = xmalloc_sockaddr2dotted(&themaddr->sa);
+			themdotted = xmalloc_sockaddr2dotted(&themaddr->u.sa);
 
 		x = connect_w_timeout(netfd);
 		if (o_zero && x == 0 && o_udpmode)        /* if UDP scanning... */

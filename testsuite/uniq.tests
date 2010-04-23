@@ -6,7 +6,7 @@
 
 # AUDIT: Full SUSv3 coverage (except internationalization).
 
-. testing.sh
+. ./testing.sh
 
 # testing "test name" "options" "expected result" "file input" "stdin"
 #   file input will be file called "input"
@@ -41,6 +41,7 @@ testing "uniq input - (specify stdout)" "uniq input -" \
 #-c occurrences
 #-d dups only
 #-u
+#-w max chars
 
 # Test various command line options
 
@@ -49,7 +50,7 @@ testing "uniq input - (specify stdout)" "uniq input -" \
 testing "uniq -c (occurrence count)" "uniq -c | sed 's/^[ \t]*//'" \
 	"1 one\n2 two\n3 three\n" "" \
 	"one\ntwo\ntwo\nthree\nthree\nthree\n"
-testing "uniq -d (dups only) " "uniq -d" "two\nthree\n" "" \
+testing "uniq -d (dups only)" "uniq -d" "two\nthree\n" "" \
 	"one\ntwo\ntwo\nthree\nthree\nthree\n"
 
 testing "uniq -f -s (skip fields and chars)" "uniq -f2 -s 3" \
@@ -59,6 +60,22 @@ aa	bb	cc9
 "cc	dd	ee8
 bb	cc	dd8
 aa	bb	cc9
+"
+testing "uniq -w (compare max characters)" "uniq -w 2" \
+"cc1
+" "" \
+"cc1
+cc2
+cc3
+"
+
+testing "uniq -s -w (skip fields and compare max chars)" \
+"uniq -s 2 -w 2" \
+"aaccaa
+" "" \
+"aaccaa
+aaccbb
+bbccaa
 "
 
 # -d is "Suppress the writing fo lines that are not repeated in the input."

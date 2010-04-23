@@ -24,7 +24,7 @@
 union semun {
 	int val;
 	struct semid_ds *buf;
-	unsigned short int *array;
+	unsigned short *array;
 	struct seminfo *__buf;
 };
 #endif
@@ -63,7 +63,7 @@ static int remove_ids(type_id type, int argc, char **argv)
 				ret = shmctl(id, IPC_RMID, NULL);
 
 			if (ret) {
-				bb_perror_msg("cannot remove id %s", argv[0]);
+				bb_perror_msg("can't remove id %s", argv[0]);
 				nb_errors++;
 			}
 		}
@@ -111,7 +111,7 @@ int ipcrm_main(int argc, char **argv)
 				what = SEM;
 
 			if (remove_ids(what, argc-2, &argv[2]))
-				fflush_stdout_and_exit(1);
+				fflush_stdout_and_exit(EXIT_FAILURE);
 			printf("resource(s) deleted\n");
 			return 0;
 		}
@@ -122,7 +122,7 @@ int ipcrm_main(int argc, char **argv)
 	while ((c = getopt(argc, argv, "q:m:s:Q:M:S:h?")) != -1) {
 		int result;
 		int id = 0;
-		int iskey = (isupper)(c);
+		int iskey = isupper(c);
 
 		/* needed to delete semaphores */
 		union semun arg;

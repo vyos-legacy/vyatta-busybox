@@ -16,6 +16,7 @@
 
 #define DEBUG 0
 
+/* our shared key (syslogd.c and logread.c must be in sync) */
 enum { KEY_ID = 0x414e4547 }; /* "GENA" */
 
 struct shbuf_ds {
@@ -33,17 +34,16 @@ struct globals {
 	struct sembuf SMrup[1]; // {0, -1, IPC_NOWAIT | SEM_UNDO},
 	struct sembuf SMrdn[2]; // {1, 0}, {0, +1, SEM_UNDO}
 	struct shbuf_ds *shbuf;
-};
+} FIX_ALIASING;
 #define G (*(struct globals*)&bb_common_bufsiz1)
 #define SMrup (G.SMrup)
 #define SMrdn (G.SMrdn)
 #define shbuf (G.shbuf)
-#define INIT_G() \
-	do { \
-		memcpy(SMrup, init_sem, sizeof(init_sem)); \
-	} while (0)
+#define INIT_G() do { \
+	memcpy(SMrup, init_sem, sizeof(init_sem)); \
+} while (0)
 
-static void error_exit(const char *str) ATTRIBUTE_NORETURN;
+static void error_exit(const char *str) NORETURN;
 static void error_exit(const char *str)
 {
 	//release all acquired resources
@@ -60,17 +60,17 @@ static void sem_up(int semid)
 		error_exit("semop[SMrup]");
 }
 
-static void interrupted(int sig ATTRIBUTE_UNUSED)
+static void interrupted(int sig UNUSED_PARAM)
 {
 	signal(SIGINT, SIG_IGN);
 	shmdt(shbuf);
-	exit(0);
+	exit(EXIT_SUCCESS);
 }
 
 int logread_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int logread_main(int argc, char **argv)
+int logread_main(int argc UNUSED_PARAM, char **argv)
 {
-	int cur;
+	unsigned cur;
 	int log_semid; /* ipc semaphore id */
 	int log_shmid; /* ipc shared memory id */
 	smallint follow = getopt32(argv, "f");
@@ -135,7 +135,7 @@ int logread_main(int argc, char **argv)
 		} else { /* logread -f */
 			if (cur == shbuf_tail) {
 				sem_up(log_semid);
-				fflush(stdout);
+				fflush_all();
 				sleep(1); /* TODO: replace me with a sleep_on */
 				continue;
 			}

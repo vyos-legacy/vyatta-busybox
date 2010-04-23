@@ -24,7 +24,6 @@
  * This is needed to avoid collision with kill -9 ... syntax
  */
 
-int kill_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int kill_main(int argc, char **argv)
 {
 	char *arg;
@@ -93,38 +92,81 @@ int kill_main(int argc, char **argv)
 		quiet = 1;
 		arg = *++argv;
 		argc--;
-		if (argc < 1) bb_show_usage();
-		if (arg[0] != '-') goto do_it_now;
+		if (argc < 1)
+			bb_show_usage();
+		if (arg[0] != '-')
+			goto do_it_now;
 	}
 
-	/* -SIG */
-	signo = get_signum(&arg[1]);
+	arg++; /* skip '-' */
+
+	/* -o PID? (if present, it always is at the end of command line) */
+	if (killall5 && arg[0] == 'o')
+		goto do_it_now;
+
+	if (argc > 1 && arg[0] == 's' && arg[1] == '\0') { /* -s SIG? */
+		argc--;
+		arg = *++argv;
+	} /* else it must be -SIG */
+	signo = get_signum(arg);
 	if (signo < 0) { /* || signo > MAX_SIGNUM ? */
-		bb_error_msg("bad signal name '%s'", &arg[1]);
+		bb_error_msg("bad signal name '%s'", arg);
 		return EXIT_FAILURE;
 	}
 	arg = *++argv;
 	argc--;
 
-do_it_now:
+ do_it_now:
+	pid = getpid();
 
 	if (killall5) {
 		pid_t sid;
 		procps_status_t* p = NULL;
+		int ret = 0;
 
-		/* Now stop all processes */
-		kill(-1, SIGSTOP);
-		/* Find out our own session id */
-		pid = getpid();
+		/* Find out our session id */
 		sid = getsid(pid);
-		/* Now kill all processes except our session */
+		/* Stop all processes */
+		kill(-1, SIGSTOP);
+		/* Signal all processes except those in our session */
 		while ((p = procps_scan(p, PSSCAN_PID|PSSCAN_SID))) {
-			if (p->sid != sid && p->pid != pid && p->pid != 1)
-				kill(p->pid, signo);
+			int i;
+
+			if (p->sid == (unsigned)sid
+			 || p->pid == (unsigned)pid
+			 || p->pid == 1)
+				continue;
+
+			/* All remaining args must be -o PID options.
+			 * Check p->pid against them. */
+			for (i = 0; i < argc; i++) {
+				pid_t omit;
+
+				arg = argv[i];
+				if (arg[0] != '-' || arg[1] != 'o') {
+					bb_error_msg("bad option '%s'", arg);
+					ret = 1;
+					goto resume;
+				}
+				arg += 2;
+				if (!arg[0] && argv[++i])
+					arg = argv[i];
+				omit = bb_strtoi(arg, NULL, 10);
+				if (errno) {
+					bb_error_msg("bad pid '%s'", arg);
+					ret = 1;
+					goto resume;
+				}
+				if (p->pid == omit)
+					goto dont_kill;
+			}
+			kill(p->pid, signo);
+ dont_kill: ;
 		}
+ resume:
 		/* And let them continue */
 		kill(-1, SIGCONT);
-		return 0;
+		return ret;
 	}
 
 	/* Pid or name is required for kill/killall */
@@ -135,7 +177,6 @@ do_it_now:
 
 	if (killall) {
 		/* Looks like they want to do a killall.  Do that */
-		pid = getpid();
 		while (arg) {
 			pid_t* pidList;
 
@@ -154,7 +195,7 @@ do_it_now:
 						continue;
 					errors++;
 					if (!quiet)
-						bb_perror_msg("cannot kill pid %u", (unsigned)*pl);
+						bb_perror_msg("can't kill pid %d", (int)*pl);
 				}
 			}
 			free(pidList);
@@ -173,7 +214,7 @@ do_it_now:
 			bb_error_msg("bad pid '%s'", arg);
 			errors++;
 		} else if (kill(pid, signo) != 0) {
-			bb_perror_msg("cannot kill pid %d", (int)pid);
+			bb_perror_msg("can't kill pid %d", (int)pid);
 			errors++;
 		}
 		arg = *++argv;

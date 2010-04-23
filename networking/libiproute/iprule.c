@@ -13,10 +13,9 @@
  * Changes:
  *
  * Rani Assaf <rani@magic.metawire.com> 980929:	resolve addresses
- * initially integrated into busybox by Bernhard Fischer
+ * initially integrated into busybox by Bernhard Reutner-Fischer
  */
 
-#include <syslog.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
@@ -41,10 +40,9 @@ static void usage(void)
 }
 */
 
-static int print_rule(struct sockaddr_nl *who ATTRIBUTE_UNUSED,
-					struct nlmsghdr *n, void *arg)
+static int FAST_FUNC print_rule(const struct sockaddr_nl *who UNUSED_PARAM,
+					struct nlmsghdr *n, void *arg UNUSED_PARAM)
 {
-	FILE *fp = (FILE*)arg;
 	struct rtmsg *r = NLMSG_DATA(n);
 	int len = n->nlmsg_len;
 	int host_len = -1;
@@ -72,15 +70,14 @@ static int print_rule(struct sockaddr_nl *who ATTRIBUTE_UNUSED,
 		host_len = 80;
 */
 	if (tb[RTA_PRIORITY])
-		fprintf(fp, "%u:\t", *(unsigned*)RTA_DATA(tb[RTA_PRIORITY]));
+		printf("%u:\t", *(unsigned*)RTA_DATA(tb[RTA_PRIORITY]));
 	else
-		fprintf(fp, "0:\t");
+		printf("0:\t");
 
-	fprintf(fp, "from ");
+	printf("from ");
 	if (tb[RTA_SRC]) {
 		if (r->rtm_src_len != host_len) {
-			fprintf(fp, "%s/%u", rt_addr_n2a(r->rtm_family,
-							 RTA_PAYLOAD(tb[RTA_SRC]),
+			printf("%s/%u", rt_addr_n2a(r->rtm_family,
 							 RTA_DATA(tb[RTA_SRC]),
 							 abuf, sizeof(abuf)),
 				r->rtm_src_len
@@ -89,73 +86,72 @@ static int print_rule(struct sockaddr_nl *who ATTRIBUTE_UNUSED,
 			fputs(format_host(r->rtm_family,
 						       RTA_PAYLOAD(tb[RTA_SRC]),
 						       RTA_DATA(tb[RTA_SRC]),
-						       abuf, sizeof(abuf)), fp);
+						       abuf, sizeof(abuf)), stdout);
 		}
 	} else if (r->rtm_src_len) {
-		fprintf(fp, "0/%d", r->rtm_src_len);
+		printf("0/%d", r->rtm_src_len);
 	} else {
-		fprintf(fp, "all");
+		printf("all");
 	}
-	fprintf(fp, " ");
+	bb_putchar(' ');
 
 	if (tb[RTA_DST]) {
 		if (r->rtm_dst_len != host_len) {
-			fprintf(fp, "to %s/%u ", rt_addr_n2a(r->rtm_family,
-							 RTA_PAYLOAD(tb[RTA_DST]),
+			printf("to %s/%u ", rt_addr_n2a(r->rtm_family,
 							 RTA_DATA(tb[RTA_DST]),
 							 abuf, sizeof(abuf)),
 				r->rtm_dst_len
 				);
 		} else {
-			fprintf(fp, "to %s ", format_host(r->rtm_family,
+			printf("to %s ", format_host(r->rtm_family,
 						       RTA_PAYLOAD(tb[RTA_DST]),
 						       RTA_DATA(tb[RTA_DST]),
 						       abuf, sizeof(abuf)));
 		}
 	} else if (r->rtm_dst_len) {
-		fprintf(fp, "to 0/%d ", r->rtm_dst_len);
+		printf("to 0/%d ", r->rtm_dst_len);
 	}
 
 	if (r->rtm_tos) {
-		fprintf(fp, "tos %s ", rtnl_dsfield_n2a(r->rtm_tos, b1, sizeof(b1)));
+		printf("tos %s ", rtnl_dsfield_n2a(r->rtm_tos, b1));
 	}
 	if (tb[RTA_PROTOINFO]) {
-		fprintf(fp, "fwmark %#x ", *(uint32_t*)RTA_DATA(tb[RTA_PROTOINFO]));
+		printf("fwmark %#x ", *(uint32_t*)RTA_DATA(tb[RTA_PROTOINFO]));
 	}
 
 	if (tb[RTA_IIF]) {
-		fprintf(fp, "iif %s ", (char*)RTA_DATA(tb[RTA_IIF]));
+		printf("iif %s ", (char*)RTA_DATA(tb[RTA_IIF]));
 	}
 
 	if (r->rtm_table)
-		fprintf(fp, "lookup %s ", rtnl_rttable_n2a(r->rtm_table, b1, sizeof(b1)));
+		printf("lookup %s ", rtnl_rttable_n2a(r->rtm_table, b1));
 
 	if (tb[RTA_FLOW]) {
 		uint32_t to = *(uint32_t*)RTA_DATA(tb[RTA_FLOW]);
 		uint32_t from = to>>16;
 		to &= 0xFFFF;
 		if (from) {
-			fprintf(fp, "realms %s/",
-				rtnl_rtrealm_n2a(from, b1, sizeof(b1)));
+			printf("realms %s/",
+				rtnl_rtrealm_n2a(from, b1));
 		}
-		fprintf(fp, "%s ",
-			rtnl_rtrealm_n2a(to, b1, sizeof(b1)));
+		printf("%s ",
+			rtnl_rtrealm_n2a(to, b1));
 	}
 
 	if (r->rtm_type == RTN_NAT) {
 		if (tb[RTA_GATEWAY]) {
-			fprintf(fp, "map-to %s ",
+			printf("map-to %s ",
 				format_host(r->rtm_family,
 					    RTA_PAYLOAD(tb[RTA_GATEWAY]),
 					    RTA_DATA(tb[RTA_GATEWAY]),
 					    abuf, sizeof(abuf)));
 		} else
-			fprintf(fp, "masquerade");
+			printf("masquerade");
 	} else if (r->rtm_type != RTN_UNICAST)
-		fputs(rtnl_rtntype_n2a(r->rtm_type, b1, sizeof(b1)), fp);
+		fputs(rtnl_rtntype_n2a(r->rtm_type, b1), stdout);
 
-	fputc('\n', fp);
-	fflush(fp);
+	bb_putchar('\n');
+	/*fflush_all();*/
 	return 0;
 }
 
@@ -170,14 +166,14 @@ static int iprule_list(char **argv)
 
 	if (*argv) {
 		//bb_error_msg("\"rule show\" needs no arguments");
-		bb_warn_ignoring_args(1);
+		bb_warn_ignoring_args(*argv);
 		return -1;
 	}
 
 	xrtnl_open(&rth);
 
 	xrtnl_wilddump_request(&rth, af, RTM_GETRULE);
-	xrtnl_dump_filter(&rth, print_rule, stdout);
+	xrtnl_dump_filter(&rth, print_rule, NULL);
 
 	return 0;
 }
@@ -237,11 +233,11 @@ static int iprule_modify(int cmd, char **argv)
 			addattr_l(&req.n, sizeof(req), RTA_DST, &dst.data, dst.bytelen);
 		} else if (key == ARG_preference ||
 			   key == ARG_order ||
-			   key == ARG_priority) {
+			   key == ARG_priority
+		) {
 			uint32_t pref;
 			NEXT_ARG();
-			if (get_u32(&pref, *argv, 0))
-				invarg(*argv, "preference");
+			pref = get_u32(*argv, "preference");
 			addattr32(&req.n, sizeof(req), RTA_PRIORITY, pref);
 		} else if (key == ARG_tos) {
 			uint32_t tos;
@@ -252,8 +248,7 @@ static int iprule_modify(int cmd, char **argv)
 		} else if (key == ARG_fwmark) {
 			uint32_t fwmark;
 			NEXT_ARG();
-			if (get_u32(&fwmark, *argv, 0))
-				invarg(*argv, "fwmark");
+			fwmark = get_u32(*argv, "fwmark");
 			addattr32(&req.n, sizeof(req), RTA_PROTOINFO, fwmark);
 		} else if (key == ARG_realms) {
 			uint32_t realm;
@@ -262,7 +257,8 @@ static int iprule_modify(int cmd, char **argv)
 				invarg(*argv, "realms");
 			addattr32(&req.n, sizeof(req), RTA_FLOW, realm);
 		} else if (key == ARG_table ||
-			   key == ARG_lookup) {
+			   key == ARG_lookup
+		) {
 			uint32_t tid;
 			NEXT_ARG();
 			if (rtnl_rttable_a2n(&tid, *argv))
@@ -270,11 +266,13 @@ static int iprule_modify(int cmd, char **argv)
 			req.r.rtm_table = tid;
 			table_ok = 1;
 		} else if (key == ARG_dev ||
-			   key == ARG_iif) {
+			   key == ARG_iif
+		) {
 			NEXT_ARG();
 			addattr_l(&req.n, sizeof(req), RTA_IIF, *argv, strlen(*argv)+1);
 		} else if (key == ARG_nat ||
-			   key == ARG_map_to) {
+			   key == ARG_map_to
+		) {
 			NEXT_ARG();
 			addattr32(&req.n, sizeof(req), RTA_GATEWAY, get_addr32(*argv));
 			req.r.rtm_type = RTN_NAT;

@@ -12,8 +12,19 @@ config FEATURE_IPV6
 	  Enable IPv6 support in busybox.
 	  This adds IPv6 support in the networking applets.
 
+config FEATURE_UNIX_LOCAL
+	bool "Enable Unix domain socket support (usually not needed)"
+	default n
+	help
+	  Enable Unix domain socket support in all busybox networking
+	  applets.  Address of the form local:/path/to/unix/socket
+	  will be recognized.
+
+	  This extension is almost never used in real world usage.
+	  You most likely want to say N.
+
 config FEATURE_PREFER_IPV4_ADDRESS
-	bool "Preferentially use IPv4 addresses from DNS queries"
+	bool "Prefer IPv4 addresses from DNS queries"
 	default y
 	depends on FEATURE_IPV6
 	help
@@ -47,6 +58,32 @@ config ARPING
 	help
 	  Ping hosts by ARP packets.
 
+config BRCTL
+	bool "brctl"
+	default n
+	help
+	  Manage ethernet bridges.
+	  Supports addbr/delbr and addif/delif.
+
+config FEATURE_BRCTL_FANCY
+	bool "Fancy options"
+	default n
+	depends on BRCTL
+	help
+	  Add support for extended option like:
+	    setageing, setfd, sethello, setmaxage,
+	    setpathcost, setportprio, setbridgeprio,
+	    stp
+	  This adds about 600 bytes.
+
+config FEATURE_BRCTL_SHOW
+	bool "Support show, showmac and showstp"
+	default n
+	depends on BRCTL && FEATURE_BRCTL_FANCY
+	help
+	  Add support for option which prints the current config:
+	    showmacs, showstp, show
+
 config DNSD
 	bool "dnsd"
 	default n
@@ -67,6 +104,30 @@ config FAKEIDENTD
 	  fakeidentd listens on the ident port and returns a predefined
 	  fake value on any query.
 
+config FTPD
+	bool "ftpd"
+	default n
+	help
+	  simple FTP daemon. You have to run it via inetd.
+
+config FEATURE_FTP_WRITE
+	bool "Enable upload commands"
+	default y
+	depends on FTPD
+	help
+	  Enable all kinds of FTP upload commands (-w option)
+
+config FEATURE_FTPD_ACCEPT_BROKEN_LIST
+	bool "Enable workaround for RFC-violating clients"
+	default y
+	depends on FTPD
+	help
+	  Some ftp clients (among them KDE's Konqueror) issue illegal
+	  "LIST -l" requests. This option works around such problems.
+	  It might prevent you from listing files starting with "-" and
+	  it increases the code size by ~40 bytes.
+	  Most other ftp servers seem to behave similar to this.
+
 config FTPGET
 	bool "ftpget"
 	default n
@@ -82,7 +143,7 @@ config FTPPUT
 config FEATURE_FTPGETPUT_LONG_OPTIONS
 	bool "Enable long options in ftpget/ftpput"
 	default n
-	depends on GETOPT_LONG && (FTPGET || FTPPUT)
+	depends on LONG_OPTS && (FTPGET || FTPPUT)
 	help
 	  Support long options for the ftpget/ftpput applet.
 
@@ -115,14 +176,6 @@ config FEATURE_HTTPD_USE_SENDFILE
 	  When enabled, httpd will use the kernel sendfile() function
 	  instead of read/write loop.
 
-config FEATURE_HTTPD_RELOAD_CONFIG_SIGHUP
-	bool "Support reloading the global config file using hup signal"
-	default n
-	depends on HTTPD
-	help
-	  This option enables processing of SIGHUP to reload cached
-	  configuration settings.
-
 config FEATURE_HTTPD_SETUID
 	bool "Enable -u <user> option"
 	default n
@@ -149,14 +202,6 @@ config FEATURE_HTTPD_AUTH_MD5
 	  Enables basic per URL authentication from /etc/httpd.conf
 	  using md5 passwords.
 
-config FEATURE_HTTPD_CONFIG_WITH_MIME_TYPES
-	bool "Support loading additional MIME types at run-time"
-	default n
-	depends on HTTPD
-	help
-	  This option enables support for additional MIME types at
-	  run-time to be specified in the configuration file.
-
 config FEATURE_HTTPD_CGI
 	bool "Support Common Gateway Interface (CGI)"
 	default y
@@ -166,7 +211,7 @@ config FEATURE_HTTPD_CGI
 	  when specific URLs are requested.
 
 config FEATURE_HTTPD_CONFIG_WITH_SCRIPT_INTERPR
-	bool "Enable support for running scripts through an interpreter"
+	bool "Support for running scripts through an interpreter"
 	default n
 	depends on FEATURE_HTTPD_CGI
 	help
@@ -177,7 +222,7 @@ config FEATURE_HTTPD_CONFIG_WITH_SCRIPT_INTERPR
 	  *.php:/path/to/your/php
 
 config FEATURE_HTTPD_SET_REMOTE_PORT_TO_ENV
-	bool "Support the REMOTE_PORT environment variable for CGI"
+	bool "Set REMOTE_PORT environment variable for CGI"
 	default n
 	depends on FEATURE_HTTPD_CGI
 	help
@@ -185,17 +230,17 @@ config FEATURE_HTTPD_SET_REMOTE_PORT_TO_ENV
 	  references that contain a unique port number.
 
 config FEATURE_HTTPD_ENCODE_URL_STR
-	bool "Enable the -e option for shell script CGI simplification."
+	bool "Enable -e option (useful for CGIs written as shell scripts)"
 	default y
 	depends on HTTPD
 	help
-	  This option allows html encoding arbitrary
-	  strings for display of the browser.  Output goes to stdout.
-	  For example, httpd -e "<Hello World>" as
+	  This option allows html encoding of arbitrary strings for display
+	  by the browser. Output goes to stdout.
+	  For example, httpd -e "<Hello World>" produces
 	  "&#60Hello&#32World&#62".
 
 config FEATURE_HTTPD_ERROR_PAGES
-	bool "Enable support for custom error pages"
+	bool "Support for custom error pages"
 	default n
 	depends on HTTPD
 	help
@@ -208,7 +253,7 @@ config FEATURE_HTTPD_ERROR_PAGES
 	  message.
 
 config FEATURE_HTTPD_PROXY
-	bool "Enable support for reverse proxy"
+	bool "Support for reverse proxy"
 	default n
 	depends on HTTPD
 	help
@@ -238,7 +283,7 @@ config FEATURE_IFCONFIG_SLIP
 	default n
 	depends on IFCONFIG
 	help
-	  Allow "keepalive" and "outfill" support for SLIP.  If you're not
+	  Allow "keepalive" and "outfill" support for SLIP. If you're not
 	  planning on using serial lines, leave this unchecked.
 
 config FEATURE_IFCONFIG_MEMSTART_IOADDR_IRQ
@@ -255,7 +300,7 @@ config FEATURE_IFCONFIG_HW
 	depends on IFCONFIG
 	help
 	  Set the hardware address of this interface, if the device driver
-	  supports  this  operation.  Currently, we only support the 'ether'
+	  supports  this  operation. Currently, we only support the 'ether'
 	  class.
 
 config FEATURE_IFCONFIG_BROADCAST_PLUS
@@ -266,19 +311,32 @@ config FEATURE_IFCONFIG_BROADCAST_PLUS
 	  Setting this will make ifconfig attempt to find the broadcast
 	  automatically if the value '+' is used.
 
+config IFENSLAVE
+	bool "ifenslave"
+	default n
+	help
+	  Userspace application to bind several interfaces
+	  to a logical interface (use with kernel bonding driver).
+
+config IFPLUGD
+	bool "ifplugd"
+	default n
+	help
+	  Network interface plug detection daemon.
+
 config IFUPDOWN
 	bool "ifupdown"
 	default n
 	help
-	  Activate or deactivate the specified interfaces.  This applet makes
+	  Activate or deactivate the specified interfaces. This applet makes
 	  use of either "ifconfig" and "route" or the "ip" command to actually
-	  configure network interfaces.  Therefore, you will probably also want
+	  configure network interfaces. Therefore, you will probably also want
 	  to enable either IFCONFIG and ROUTE, or enable
-	  FEATURE_IFUPDOWN_IP and the various IP options.  Of
+	  FEATURE_IFUPDOWN_IP and the various IP options. Of
 	  course you could use non-busybox versions of these programs, so
 	  against my better judgement (since this will surely result in plenty
 	  of support questions on the mailing list), I do not force you to
-	  enable these additional options.  It is up to you to supply either
+	  enable these additional options. It is up to you to supply either
 	  "ifconfig", "route" and "run-parts" or the "ip" command, either
 	  via busybox or via standalone utilities.
 
@@ -330,14 +388,14 @@ config FEATURE_IFUPDOWN_IFCONFIG_BUILTIN
 	  work.
 
 config FEATURE_IFUPDOWN_IPV4
-	bool "Enable support for IPv4"
+	bool "Support for IPv4"
 	default y
 	depends on IFUPDOWN
 	help
 	  If you want ifup/ifdown to talk IPv4, leave this on.
 
 config FEATURE_IFUPDOWN_IPV6
-	bool "Enable support for IPv6"
+	bool "Support for IPv6"
 	default n
 	depends on IFUPDOWN && FEATURE_IPV6
 	help
@@ -345,7 +403,7 @@ config FEATURE_IFUPDOWN_IPV6
 
 ### UNUSED
 ###config FEATURE_IFUPDOWN_IPX
-###	bool "Enable support for IPX"
+###	bool "Support for IPX"
 ###	default n
 ###	depends on IFUPDOWN
 ###	help
@@ -361,7 +419,7 @@ config FEATURE_IFUPDOWN_MAPPING
 	  a weird network setup you don't need it.
 
 config FEATURE_IFUPDOWN_EXTERNAL_DHCP
-	bool "Enable support for external dhcp clients"
+	bool "Support for external dhcp clients"
 	default n
 	depends on IFUPDOWN
 	help
@@ -425,7 +483,7 @@ config IP
 	default n
 	help
 	  The "ip" applet is a TCP/IP interface configuration and routing
-	  utility.  You generally don't need "ip" to use busybox with
+	  utility. You generally don't need "ip" to use busybox with
 	  TCP/IP.
 
 config FEATURE_IP_ADDRESS
@@ -464,7 +522,7 @@ config FEATURE_IP_RULE
 	  Add support for rule commands to "ip".
 
 config FEATURE_IP_SHORT_FORMS
-	bool "Support short forms of ip commands."
+	bool "Support short forms of ip commands"
 	default n
 	depends on IP
 	help
@@ -525,12 +583,13 @@ config FEATURE_IPCALC_FANCY
 	default y
 	depends on IPCALC
 	help
-	  Adds the options hostname, prefix and silent to the output of "ipcalc".
+	  Adds the options hostname, prefix and silent to the output of
+	  "ipcalc".
 
 config FEATURE_IPCALC_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on IPCALC && GETOPT_LONG
+	depends on IPCALC && LONG_OPTS
 	help
 	  Support long options for the ipcalc applet.
 
@@ -543,7 +602,7 @@ config NAMEIF
 	  Renamed interfaces MUST be in the down state.
 	  It is possible to use a file (default: /etc/mactab)
 	  with list of new interface names and MACs.
-	  Maximum interface name length: IF_NAMESIZE = 16
+	  Maximum interface name length: IFNAMSIZ = 16
 	  File fields are separated by space or tab.
 	  File format:
 	  # Comment
@@ -592,18 +651,40 @@ config NETSTAT
 	  netstat prints information about the Linux networking subsystem.
 
 config FEATURE_NETSTAT_WIDE
-	bool "  Enable wide netstat output"
+	bool "Enable wide netstat output"
 	default n
 	depends on NETSTAT
 	help
 	  Add support for wide columns. Useful when displaying IPv6 addresses
 	  (-W option).
 
+config FEATURE_NETSTAT_PRG
+	bool "Enable PID/Program name output"
+	default n
+	depends on NETSTAT
+	help
+	  Add support for -p flag to print out PID and program name.
+	  +700 bytes of code.
+
 config NSLOOKUP
 	bool "nslookup"
 	default n
 	help
 	  nslookup is a tool to query Internet name servers.
+
+config NTPD
+	bool "ntpd"
+	default n
+	help
+	  The NTP client/server daemon.
+
+config FEATURE_NTPD_SERVER
+	bool "Make ntpd usable as a NTP server"
+	default y
+	depends on NTPD
+	help
+	  Make ntpd usable as a NTP server. If you disable this option
+	  ntpd will be usable only as a NTP client.
 
 config PING
 	bool "ping"
@@ -619,12 +700,6 @@ config PING6
 	help
 	  This will give you a ping that can talk IPv6.
 
-config PSCAN
-	bool "pscan"
-	default n
-	help
-	  Simple network port scanner.
-
 config FEATURE_FANCY_PING
 	bool "Enable fancy ping output"
 	default y
@@ -632,6 +707,12 @@ config FEATURE_FANCY_PING
 	help
 	  Make the output from the ping applet include statistics, and at the
 	  same time provide full support for ICMP packets.
+
+config PSCAN
+	bool "pscan"
+	default n
+	help
+	  Simple network port scanner.
 
 config ROUTE
 	bool "route"
@@ -643,7 +724,25 @@ config SLATTACH
 	bool "slattach"
 	default n
 	help
-	  slattach is a small utility to attach network interfaces to serial lines.
+	  slattach is a small utility to attach network interfaces to serial
+	  lines.
+
+#config TC
+#	bool "tc"
+#	default n
+#	help
+#	  show / manipulate traffic control settings
+#
+#config FEATURE_TC_INGRESS
+#	def_bool n
+#	depends on TC
+
+config TCPSVD
+	bool "tcpsvd"
+	default n
+	help
+	  tcpsvd listens on a TCP port and runs a program for each new
+	  connection.
 
 config TELNET
 	bool "telnet"
@@ -658,7 +757,7 @@ config FEATURE_TELNET_TTYPE
 	depends on TELNET
 	help
 	  Setting this option will forward the TERM environment variable to the
-	  remote host you are connecting to.  This is useful to make sure that
+	  remote host you are connecting to. This is useful to make sure that
 	  things like ANSI colors and other control sequences behave.
 
 config FEATURE_TELNET_AUTOLOGIN
@@ -677,9 +776,9 @@ config TELNETD
 	select FEATURE_SYSLOG
 	help
 	  A daemon for the TELNET protocol, allowing you to log onto the host
-	  running the daemon.  Please keep in mind that the TELNET protocol
-	  sends passwords in plain text.  If you can't afford the space for an
-	  SSH daemon and you trust your network, you may say 'y' here.  As a
+	  running the daemon. Please keep in mind that the TELNET protocol
+	  sends passwords in plain text. If you can't afford the space for an
+	  SSH daemon and you trust your network, you may say 'y' here. As a
 	  more secure alternative, you should seriously consider installing the
 	  very small Dropbear SSH daemon instead:
 		http://matt.ucc.asn.au/dropbear/dropbear.html
@@ -705,7 +804,7 @@ config TELNETD
 		  mount -t devpts devpts /dev/pts
 
 	  You need to be sure that Busybox has LOGIN and
-	  FEATURE_SUID enabled.  And finally, you should make
+	  FEATURE_SUID enabled. And finally, you should make
 	  certain that Busybox has been installed setuid root:
 
 		chown root.root /bin/busybox
@@ -721,58 +820,108 @@ config FEATURE_TELNETD_STANDALONE
 	help
 	  Selecting this will make telnetd able to run standalone.
 
+config FEATURE_TELNETD_INETD_WAIT
+	bool "Support -w SEC option (inetd wait mode)"
+	default n
+	depends on FEATURE_TELNETD_STANDALONE
+	help
+	  This option allows you to run telnetd in "inet wait" mode.
+	  Example inetd.conf line (note "wait", not usual "nowait"):
+
+	  telnet stream tcp wait root /bin/telnetd telnetd -w10
+
+	  In this example, inetd passes _listening_ socket_ as fd 0
+	  to telnetd when connection appears.
+	  telnetd will wait for connections until all existing
+	  connections are closed, and no new connections
+	  appear during 10 seconds. Then it exits, and inetd continues
+	  to listen for new connections.
+
+	  This option is rarely used. "tcp nowait" is much more usual
+	  way of running tcp services, including telnetd.
+	  You most probably want to say N here.
+
 config TFTP
 	bool "tftp"
 	default n
 	help
-	  This enables the Trivial File Transfer Protocol client program.  TFTP
+	  This enables the Trivial File Transfer Protocol client program. TFTP
 	  is usually used for simple, small transfers such as a root image
 	  for a network-enabled bootloader.
 
-config FEATURE_TFTP_GET
-	bool "Enable \"get\" command"
-	default y
-	depends on TFTP
+config TFTPD
+	bool "tftpd"
+	default n
 	help
-	  Add support for the GET command within the TFTP client.  This allows
+	  This enables the Trivial File Transfer Protocol server program.
+	  It expects that stdin is a datagram socket and a packet
+	  is already pending on it. It will exit after one transfer.
+	  In other words: it should be run from inetd in nowait mode,
+	  or from udpsvd. Example: "udpsvd -E 0 69 tftpd DIR"
+
+config FEATURE_TFTP_GET
+	bool "Enable 'tftp get' and/or tftpd upload code"
+	default y
+	depends on TFTP || TFTPD
+	help
+	  Add support for the GET command within the TFTP client. This allows
 	  a client to retrieve a file from a TFTP server.
+	  Also enable upload support in tftpd, if tftpd is selected.
+
+	  Note: this option does _not_ make tftpd capable of download
+	  (the usual operation people need from it)!
 
 config FEATURE_TFTP_PUT
-	bool "Enable \"put\" command"
+	bool "Enable 'tftp put' and/or tftpd download code"
 	default y
-	depends on TFTP
+	depends on TFTP || TFTPD
 	help
-	  Add support for the PUT command within the TFTP client.  This allows
+	  Add support for the PUT command within the TFTP client. This allows
 	  a client to transfer a file to a TFTP server.
+	  Also enable download support in tftpd, if tftpd is selected.
 
 config FEATURE_TFTP_BLOCKSIZE
-	bool "Enable \"blocksize\" command"
+	bool "Enable 'blksize' and 'tsize' protocol options"
 	default n
-	depends on TFTP
+	depends on TFTP || TFTPD
 	help
-	  Allow the client to specify the desired block size for transfers.
+	  Allow tftp to specify block size, and tftpd to understand
+	  "blksize" and "tsize" options.
 
-config DEBUG_TFTP
+config FEATURE_TFTP_PROGRESS_BAR
+	bool "Enable tftp progress meter"
+	default n
+	depends on TFTP && FEATURE_TFTP_BLOCKSIZE
+	help
+	  Show progress bar.
+
+config TFTP_DEBUG
 	bool "Enable debug"
 	default n
-	depends on TFTP
+	depends on TFTP || TFTPD
 	help
-	  Enable debug settings for tftp.  This is useful if you're running
-	  into problems with tftp as the protocol doesn't help you much when
-	  you run into problems.
+	  Make tftp[d] print debugging messages on stderr.
+	  This is useful if you are diagnosing a bug in tftp[d].
 
 config TRACEROUTE
 	bool "traceroute"
 	default n
 	help
-	  Utility to trace the route of IP packets
+	  Utility to trace the route of IP packets.
+
+config TRACEROUTE6
+	bool "traceroute6"
+	default n
+	depends on FEATURE_IPV6 && TRACEROUTE
+	help
+	  Utility to trace the route of IPv6 packets.
 
 config FEATURE_TRACEROUTE_VERBOSE
 	bool "Enable verbose output"
 	default n
 	depends on TRACEROUTE
 	help
-	  Add some verbosity to traceroute.  This includes amongst other things
+	  Add some verbosity to traceroute. This includes among other things
 	  hostnames and ICMP response types.
 
 config FEATURE_TRACEROUTE_SOURCE_ROUTE
@@ -788,9 +937,39 @@ config FEATURE_TRACEROUTE_USE_ICMP
 	default n
 	depends on TRACEROUTE
 	help
-	  Add feature to allow for ICMP ECHO instead of UDP datagrams.
+	  Add option -I to use ICMP ECHO instead of UDP datagrams.
+
+config TUNCTL
+	bool "tunctl"
+	default n
+	help
+	  tunctl creates or deletes tun devices.
+
+config FEATURE_TUNCTL_UG
+	bool "Support owner:group assignment"
+	default n
+	depends on TUNCTL
+	help
+	  Allow to specify owner and group of newly created interface.
+	  340 bytes of pure bloat. Say no here.
 
 source networking/udhcp/Config.in
+
+config IFUPDOWN_UDHCPC_CMD_OPTIONS
+	string "ifup udhcpc command line options"
+	default "-R -n"
+	depends on IFUPDOWN && UDHCPC
+	help
+	  Command line options to pass to udhcpc from ifup.
+	  Intended to alter options not available in /etc/network/interfaces.
+	  (IE: --syslog --background etc...)
+
+config UDPSVD
+	bool "udpsvd"
+	default n
+	help
+	  udpsvd listens on an UDP port and runs a program for each new
+	  connection.
 
 config VCONFIG
 	bool "vconfig"
@@ -822,7 +1001,7 @@ config FEATURE_WGET_AUTHENTICATION
 config FEATURE_WGET_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on WGET && GETOPT_LONG
+	depends on WGET && LONG_OPTS
 	help
 	  Support long options for the wget applet.
 

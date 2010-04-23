@@ -13,21 +13,26 @@
  * return 1 if found;
  * return 0 otherwise;
  */
-int execable_file(const char *name)
+int FAST_FUNC execable_file(const char *name)
 {
 	struct stat s;
 	return (!access(name, X_OK) && !stat(name, &s) && S_ISREG(s.st_mode));
 }
 
-/* search $PATH for an executable file;
+/* search (*PATHp) for an executable file;
  * return allocated string containing full path if found;
- * return NULL otherwise;
+ *  PATHp points to the component after the one where it was found
+ *  (or NULL),
+ *  you may call find_execable again with this PATHp to continue
+ *  (if it's not NULL).
+ * return NULL otherwise; (PATHp is undefined)
+ * in all cases (*PATHp) contents will be trashed (s/:/NUL/).
  */
-char *find_execable(const char *filename)
+char* FAST_FUNC find_execable(const char *filename, char **PATHp)
 {
-	char *path, *p, *n;
+	char *p, *n;
 
-	p = path = xstrdup(getenv("PATH"));
+	p = *PATHp;
 	while (p) {
 		n = strchr(p, ':');
 		if (n)
@@ -35,24 +40,26 @@ char *find_execable(const char *filename)
 		if (*p != '\0') { /* it's not a PATH="foo::bar" situation */
 			p = concat_path_file(p, filename);
 			if (execable_file(p)) {
-				free(path);
+				*PATHp = n;
 				return p;
 			}
 			free(p);
 		}
 		p = n;
-	}
-	free(path);
-	return NULL;
+	} /* on loop exit p == NULL */
+	return p;
 }
 
 /* search $PATH for an executable file;
  * return 1 if found;
  * return 0 otherwise;
  */
-int exists_execable(const char *filename)
+int FAST_FUNC exists_execable(const char *filename)
 {
-	char *ret = find_execable(filename);
+	char *path = xstrdup(getenv("PATH"));
+	char *tmp = path;
+	char *ret = find_execable(filename, &tmp);
+	free(path);
 	if (ret) {
 		free(ret);
 		return 1;
@@ -63,7 +70,7 @@ int exists_execable(const char *filename)
 #if ENABLE_FEATURE_PREFER_APPLETS
 /* just like the real execvp, but try to launch an applet named 'file' first
  */
-int bb_execvp(const char *file, char *const argv[])
+int FAST_FUNC bb_execvp(const char *file, char *const argv[])
 {
 	return execvp(find_applet_by_name(file) >= 0 ? bb_busybox_exec_path : file,
 					argv);

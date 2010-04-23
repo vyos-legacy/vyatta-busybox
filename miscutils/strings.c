@@ -2,12 +2,10 @@
 /*
  * strings implementation for busybox
  *
- * Copyright Tito Ragusa <farmatito@tiscali.it>
+ * Copyright 2003 Tito Ragusa <farmatito@tiscali.it>
  *
  * Licensed under the GPL v2 or later, see the file LICENSE in this tarball.
  */
-
-#include <getopt.h>
 
 #include "libbb.h"
 
@@ -17,18 +15,17 @@
 #define SIZE			8
 
 int strings_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int strings_main(int argc, char **argv)
+int strings_main(int argc UNUSED_PARAM, char **argv)
 {
 	int n, c, status = EXIT_SUCCESS;
-	unsigned opt;
 	unsigned count;
 	off_t offset;
-	FILE *file = stdin;
+	FILE *file;
 	char *string;
 	const char *fmt = "%s: ";
 	const char *n_arg = "4";
 
-	opt = getopt32(argv, "afon:", &n_arg);
+	getopt32(argv, "afon:", &n_arg);
 	/* -a is our default behaviour */
 	/*argc -= optind;*/
 	argv += optind;
@@ -40,30 +37,28 @@ int strings_main(int argc, char **argv)
 	if (!*argv) {
 		fmt = "{%s}: ";
 		*--argv = (char *)bb_msg_standard_input;
-		goto PIPE;
 	}
 
 	do {
-		file = fopen_or_warn(*argv, "r");
+		file = fopen_or_warn_stdin(*argv);
 		if (!file) {
 			status = EXIT_FAILURE;
 			continue;
 		}
- PIPE:
 		offset = 0;
 		count = 0;
 		do {
 			c = fgetc(file);
-			if (isprint(c) || c == '\t') {
+			if (isprint_asciionly(c) || c == '\t') {
 				if (count > n) {
 					bb_putchar(c);
 				} else {
 					string[count] = c;
 					if (count == n) {
-						if (opt & PRINT_NAME) {
+						if (option_mask32 & PRINT_NAME) {
 							printf(fmt, *argv);
 						}
-						if (opt & PRINT_OFFSET) {
+						if (option_mask32 & PRINT_OFFSET) {
 							printf("%7"OFF_FMT"o ", offset - n);
 						}
 						fputs(string, stdout);

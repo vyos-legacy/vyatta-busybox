@@ -36,10 +36,11 @@
  *
  * NULL pw means "just fake it for login with bad username" */
 
-int correct_password(const struct passwd *pw)
+int FAST_FUNC correct_password(const struct passwd *pw)
 {
 	char *unencrypted, *encrypted;
 	const char *correct;
+	int r;
 #if ENABLE_FEATURE_SHADOWPASSWDS
 	/* Using _r function to avoid pulling in static buffers */
 	struct spwd spw;
@@ -58,7 +59,7 @@ int correct_password(const struct passwd *pw)
 		/* getspnam_r may return 0 yet set result to NULL.
 		 * At least glibc 2.4 does this. Be extra paranoid here. */
 		struct spwd *result = NULL;
-		int r = getspnam_r(pw->pw_name, &spw, buffer, sizeof(buffer), &result);
+		r = getspnam_r(pw->pw_name, &spw, buffer, sizeof(buffer), &result);
 		correct = (r || !result) ? "aa" : result->sp_pwdp;
 	}
 #endif
@@ -67,11 +68,13 @@ int correct_password(const struct passwd *pw)
 		return 1;
 
  fake_it:
-	unencrypted = bb_askpass(0, "Password: ");
+	unencrypted = bb_ask_stdin("Password: ");
 	if (!unencrypted) {
 		return 0;
 	}
-	encrypted = crypt(unencrypted, correct);
+	encrypted = pw_encrypt(unencrypted, correct, 1);
+	r = (strcmp(encrypted, correct) == 0);
+	free(encrypted);
 	memset(unencrypted, 0, strlen(unencrypted));
-	return strcmp(encrypted, correct) == 0;
+	return r;
 }

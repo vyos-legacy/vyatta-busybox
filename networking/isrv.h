@@ -3,10 +3,12 @@
  * Generic non-forking server infrastructure.
  * Intended to make writing telnetd-type servers easier.
  *
- * Copyright (C) 2007 Denis Vlasenko
+ * Copyright (C) 2007 Denys Vlasenko
  *
  * Licensed under GPL version 2, see file LICENSE in this tarball for details.
  */
+
+PUSH_AND_SET_FUNCTION_VISIBILITY_TO_HIDDEN
 
 /* opaque structure */
 struct isrv_state_t;
@@ -31,3 +33,5 @@ void isrv_run(
 	int timeout,
 	int linger_timeout
 );
+
+POP_SAVED_FUNCTION_VISIBILITY

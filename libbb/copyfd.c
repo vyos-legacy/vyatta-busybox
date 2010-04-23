@@ -22,6 +22,8 @@ static off_t bb_full_fd_action(int src_fd, int dst_fd, off_t size)
 	char *buffer;
 	int buffer_size;
 
+	if (size > 0 && size <= 4 * 1024)
+		goto use_small_buf;
 	/* We want page-aligned buffer, just in case kernel is clever
 	 * and can do page-aligned io more efficiently */
 	buffer = mmap(NULL, CONFIG_FEATURE_COPYBUF_KB * 1024,
@@ -30,6 +32,7 @@ static off_t bb_full_fd_action(int src_fd, int dst_fd, off_t size)
 			/* ignored: */ -1, 0);
 	buffer_size = CONFIG_FEATURE_COPYBUF_KB * 1024;
 	if (buffer == MAP_FAILED) {
+ use_small_buf:
 		buffer = alloca(4 * 1024);
 		buffer_size = 4 * 1024;
 	}
@@ -85,7 +88,7 @@ static off_t bb_full_fd_action(int src_fd, int dst_fd, off_t size)
 
 
 #if 0
-void complain_copyfd_and_die(off_t sz)
+void FAST_FUNC complain_copyfd_and_die(off_t sz)
 {
 	if (sz != -1)
 		bb_error_msg_and_die("short read");
@@ -94,7 +97,7 @@ void complain_copyfd_and_die(off_t sz)
 }
 #endif
 
-off_t bb_copyfd_size(int fd1, int fd2, off_t size)
+off_t FAST_FUNC bb_copyfd_size(int fd1, int fd2, off_t size)
 {
 	if (size) {
 		return bb_full_fd_action(fd1, fd2, size);
@@ -102,7 +105,7 @@ off_t bb_copyfd_size(int fd1, int fd2, off_t size)
 	return 0;
 }
 
-void bb_copyfd_exact_size(int fd1, int fd2, off_t size)
+void FAST_FUNC bb_copyfd_exact_size(int fd1, int fd2, off_t size)
 {
 	off_t sz = bb_copyfd_size(fd1, fd2, size);
 	if (sz == size)
@@ -113,7 +116,7 @@ void bb_copyfd_exact_size(int fd1, int fd2, off_t size)
 	xfunc_die();
 }
 
-off_t bb_copyfd_eof(int fd1, int fd2)
+off_t FAST_FUNC bb_copyfd_eof(int fd1, int fd2)
 {
 	return bb_full_fd_action(fd1, fd2, 0);
 }

@@ -1,9 +1,35 @@
-debian/build
-debian/busybox.debhelper.log
-debian/files
-debian/stamps
-debian/vyatta-busybox
-debian/vyatta-busybox.debhelper.log
-debian/vyatta-busybox-static.debhelper.log
-debian/vyatta-busybox.substvars
-debian/vyatta-busybox-udeb.debhelper.log
+#
+# Kbuild ignores
+#
+.*
+*.o
+*.o.*
+*.a
+*.s
+
+#
+# Never ignore these
+#
+!.gitignore
+
+#
+# Normal output
+#
+/busybox
+/busybox_unstripped*
+
+#
+# Backups / patches
+#
+*~
+*.orig
+*.rej
+/*.patch
+
+#
+# debugging stuff
+#
+core
+.gdb_history
+.gdbinit
+

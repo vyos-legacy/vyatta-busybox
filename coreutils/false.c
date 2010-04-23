@@ -8,14 +8,14 @@
  */
 
 /* BB_AUDIT SUSv3 compliant */
-/* http://www.opengroup.org/onlinepubs/007904975/utilities/false.html */
+/* http://www.opengroup.org/onlinepubs/000095399/utilities/false.html */
 
 #include "libbb.h"
 
 /* This is a NOFORK applet. Be very careful! */
 
 int false_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int false_main(int ATTRIBUTE_UNUSED argc, char ATTRIBUTE_UNUSED **argv)
+int false_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 {
 	return EXIT_FAILURE;
 }

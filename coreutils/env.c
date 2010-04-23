@@ -29,8 +29,7 @@
  * - use xfunc_error_retval
  */
 
-#include <getopt.h> /* struct option */
-extern char **environ;
+/* This is a NOEXEC applet. Be very careful! */
 
 #include "libbb.h"
 
@@ -42,32 +41,32 @@ static const char env_longopts[] ALIGN1 =
 #endif
 
 int env_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int env_main(int argc, char **argv)
+int env_main(int argc UNUSED_PARAM, char **argv)
 {
-	/* cleanenv was static - why? */
-	char *cleanenv[1];
-	char **ep;
-	unsigned opt;
+	unsigned opts;
 	llist_t *unset_env = NULL;
 
 	opt_complementary = "u::";
 #if ENABLE_FEATURE_ENV_LONG_OPTIONS
 	applet_long_options = env_longopts;
 #endif
-	opt = getopt32(argv, "+iu:", &unset_env);
+	opts = getopt32(argv, "+iu:", &unset_env);
 	argv += optind;
-	if (*argv && LONE_DASH(argv[0])) {
-		opt |= 1;
+	if (argv[0] && LONE_DASH(argv[0])) {
+		opts |= 1;
 		++argv;
 	}
-	if (opt & 1) {
-		cleanenv[0] = NULL;
-		environ = cleanenv;
-	} else {
-		while (unset_env) {
-			unsetenv(unset_env->data);
-			unset_env = unset_env->link;
-		}
+	if (opts & 1) {
+		clearenv();
+	}
+	while (unset_env) {
+		char *var = llist_pop(&unset_env);
+		/* This does not handle -uVAR=VAL
+		 * (coreutils _sets_ the variable in that case): */
+		/*unsetenv(var);*/
+		/* This does, but uses somewhan undocumented feature that
+		 * putenv("name_without_equal_sign") unsets the variable: */
+		putenv(var);
 	}
 
 	while (*argv && (strchr(*argv, '=') != NULL)) {
@@ -84,11 +83,14 @@ int env_main(int argc, char **argv)
 		bb_simple_perror_msg_and_die(*argv);
 	}
 
-	for (ep = environ; *ep; ep++) {
-		puts(*ep);
+	if (environ) { /* clearenv() may set environ == NULL! */
+		char **ep;
+		for (ep = environ; *ep; ep++) {
+			puts(*ep);
+		}
 	}
 
-	fflush_stdout_and_exit(0);
+	fflush_stdout_and_exit(EXIT_SUCCESS);
 }
 
 /*
@@ -123,5 +125,3 @@ int env_main(int argc, char **argv)
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-

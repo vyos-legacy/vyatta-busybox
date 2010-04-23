@@ -31,9 +31,9 @@ struct minix2_inode {
 };
 
 /*
- * minix super-block data on disk
+ * minix superblock data on disk
  */
-struct minix_super_block {
+struct minix_superblock {
 	uint16_t s_ninodes;
 	uint16_t s_nzones;
 	uint16_t s_imap_blocks;
@@ -48,7 +48,7 @@ struct minix_super_block {
 
 struct minix_dir_entry {
 	uint16_t inode;
-	char name[0];
+	char name[];
 };
 
 /* Believe it or not, but mount.h has this one #defined */

@@ -20,10 +20,7 @@
  * Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
  *      2001, 2002, 2003, 2004, 2005 by  Theodore Ts'o.
  *
- * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
- * %End-Header%
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 #include <sys/types.h>
@@ -285,7 +282,7 @@ static char *string_copy(const char *s)
 
 	if (!s)
 		return 0;
-	ret = strdup(s);
+	ret = xstrdup(s);
 	return ret;
 }
 
@@ -380,8 +377,7 @@ static struct fs_info *create_fs_device(const char *device, const char *mntpnt,
 {
 	struct fs_info *fs;
 
-	if (!(fs = malloc(sizeof(struct fs_info))))
-		return NULL;
+	fs = xmalloc(sizeof(struct fs_info));
 
 	fs->device = string_copy(device);
 	fs->mountpt = string_copy(mntpnt);
@@ -477,8 +473,7 @@ static void load_fs_info(const char *filename)
 	int     old_fstab = 1;
 	struct fs_info *fs;
 
-	if ((f = fopen(filename, "r")) == NULL) {
-		bb_perror_msg("WARNING: cannot open %s", filename);
+	if ((f = fopen_or_warn(filename, "r")) == NULL) {
 		return;
 	}
 	while (!feof(f)) {
@@ -534,21 +529,21 @@ static struct fs_info *lookup(char *filesys)
 /* Find fsck program for a given fs type. */
 static char *find_fsck(char *type)
 {
-  char *s;
-  const char *tpl;
-  char *p = string_copy(fsck_path);
-  struct stat st;
+	char *s;
+	const char *tpl;
+	char *p = string_copy(fsck_path);
+	struct stat st;
 
-  /* Are we looking for a program or just a type? */
-  tpl = (strncmp(type, "fsck.", 5) ? "%s/fsck.%s" : "%s/%s");
+	/* Are we looking for a program or just a type? */
+	tpl = (strncmp(type, "fsck.", 5) ? "%s/fsck.%s" : "%s/%s");
 
-  for(s = strtok(p, ":"); s; s = strtok(NULL, ":")) {
-	s = xasprintf(tpl, s, type);
-	if (stat(s, &st) == 0) break;
-	free(s);
-  }
-  free(p);
-  return s;
+	for (s = strtok(p, ":"); s; s = strtok(NULL, ":")) {
+		s = xasprintf(tpl, s, type);
+		if (stat(s, &st) == 0) break;
+		free(s);
+	}
+	free(p);
+	return s;
 }
 
 static int progress_active(void)
@@ -577,10 +572,7 @@ static int execute(const char *type, const char *device, const char *mntpt,
 	struct fsck_instance *inst, *p;
 	pid_t   pid;
 
-	inst = malloc(sizeof(struct fsck_instance));
-	if (!inst)
-		return ENOMEM;
-	memset(inst, 0, sizeof(struct fsck_instance));
+	inst = xzalloc(sizeof(struct fsck_instance));
 
 	prog = xasprintf("fsck.%s", type);
 	argv[0] = prog;
@@ -886,7 +878,7 @@ static void compile_fs_type(char *fs_type, struct fs_type_compile *cmp)
 	list = string_copy(fs_type);
 	num = 0;
 	s = strtok(list, ",");
-	while(s) {
+	while (s) {
 		negate = 0;
 		if (strncmp(s, "no", 2) == 0) {
 			s += 2;
@@ -931,7 +923,7 @@ static int opt_in_list(char *opt, char *optlist)
 	list = string_copy(optlist);
 
 	s = strtok(list, ",");
-	while(s) {
+	while (s) {
 		if (strcmp(s, opt) == 0) {
 			free(list);
 			return 1;
@@ -1005,7 +997,7 @@ static int ignore(struct fs_info *fs)
 	s = find_fsck(fs->type);
 	if (s == NULL) {
 		if (wanted)
-			bb_error_msg("cannot check %s: fsck.%s not found",
+			bb_error_msg("can't check %s: fsck.%s not found",
 				fs->device, fs->type);
 		return 1;
 	}
@@ -1174,7 +1166,7 @@ static void signal_cancel(int sig FSCK_ATTR((unused)))
 static void PRS(int argc, char **argv)
 {
 	int     i, j;
-	char    *arg, *dev, *tmp = 0;
+	char    *arg, *dev, *tmp = NULL;
 	char    options[128];
 	int     opt = 0;
 	int     opts_for_fsck = 0;
@@ -1207,7 +1199,7 @@ static void PRS(int argc, char **argv)
 				 * /proc/partitions isn't found.
 				 */
 				if (access("/proc/partitions", R_OK) < 0) {
-					bb_perror_msg_and_die("cannot open /proc/partitions "
+					bb_perror_msg_and_die("can't open /proc/partitions "
 							"(is /proc mounted?)");
 				}
 				/*
@@ -1219,7 +1211,7 @@ static void PRS(int argc, char **argv)
 		"must be root to scan for matching filesystems: %s\n", arg);
 				else
 					bb_error_msg_and_die(
-		"cannot find matching filesystem: %s", arg);
+		"can't find matching filesystem: %s", arg);
 			}
 			devices[num_devices++] = dev ? dev : string_copy(arg);
 			continue;

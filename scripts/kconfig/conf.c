@@ -503,7 +503,7 @@ int main(int ac, char **av)
 			break;
 		case 's':
 			input_mode = ask_silent;
-			valid_stdin = isatty(0) && isatty(1) && isatty(2);
+			valid_stdin = isatty(0); //bbox: && isatty(1) && isatty(2);
 			break;
 		case 'd':
 			input_mode = set_default;
@@ -605,7 +605,7 @@ int main(int ac, char **av)
 		check_conf(&rootmenu);
 	} while (conf_cnt);
 	if (conf_write(NULL)) {
-		fprintf(stderr, _("\n*** Error during writing of the busybox configuration.\n\n"));
+		fprintf(stderr, _("\n*** Error during writing of the configuration.\n\n"));
 		return 1;
 	}
 	return 0;

@@ -36,14 +36,12 @@
 #if ENABLE_SELINUX
 static security_context_t current_sid;
 
-void
-renew_current_security_context(void)
+void FAST_FUNC renew_current_security_context(void)
 {
 	freecon(current_sid);  /* Release old context  */
 	getcon(&current_sid);  /* update */
 }
-void
-set_current_security_context(security_context_t sid)
+void FAST_FUNC set_current_security_context(security_context_t sid)
 {
 	freecon(current_sid);  /* Release old context  */
 	current_sid = sid;
@@ -56,7 +54,7 @@ set_current_security_context(security_context_t sid)
    If ADDITIONAL_ARGS is nonzero, pass it to the shell as more
    arguments.  */
 
-void run_shell(const char *shell, int loginshell, const char *command, const char **additional_args)
+void FAST_FUNC run_shell(const char *shell, int loginshell, const char *command, const char **additional_args)
 {
 	const char **args;
 	int argno = 1;
@@ -88,5 +86,5 @@ void run_shell(const char *shell, int loginshell, const char *command, const cha
 		freecon(current_sid);
 #endif
 	execv(shell, (char **) args);
-	bb_perror_msg_and_die("cannot run %s", shell);
+	bb_perror_msg_and_die("can't run '%s'", shell);
 }

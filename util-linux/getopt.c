@@ -22,7 +22,7 @@
  * Version 1.0.6: Tue Jun 27 2000
  *   No important changes
  * Version 1.1.0: Tue Jun 30 2000
- *   Added NLS support (partly written by Arkadiusz Mi<B6>kiewicz
+ *   Added NLS support (partly written by Arkadiusz Mickiewicz
  *     <misiek@misiek.eu.org>)
  * Ported to Busybox - Alfred M. Szmidt <ams@trillian.itslinux.org>
  *  Removed --version/-V and --help/-h in
@@ -38,7 +38,7 @@
    mode */
 enum {
 	NON_OPT = 1,
-#if ENABLE_GETOPT_LONG
+#if ENABLE_FEATURE_GETOPT_LONG
 /* LONG_OPT is the code that is returned when a long option is found. */
 	LONG_OPT = 2
 #endif
@@ -53,7 +53,7 @@ enum {
 	OPT_s	= 0x10,	// -s
 	OPT_T	= 0x20,	// -T
 	OPT_u	= 0x40,	// -u
-#if ENABLE_GETOPT_LONG
+#if ENABLE_FEATURE_GETOPT_LONG
 	OPT_a	= 0x80,	// -a
 	OPT_l	= 0x100, // -l
 #endif
@@ -141,37 +141,46 @@ static const char *normalize(const char *arg)
  * optstr must contain the short options, and longopts the long options.
  * Other settings are found in global variables.
  */
-#if !ENABLE_GETOPT_LONG
-#define generate_output(argv,argc,optstr,longopts) generate_output(argv,argc,optstr)
+#if !ENABLE_FEATURE_GETOPT_LONG
+#define generate_output(argv,argc,optstr,longopts) \
+	generate_output(argv,argc,optstr)
 #endif
 static int generate_output(char **argv, int argc, const char *optstr, const struct option *longopts)
 {
 	int exit_code = 0; /* We assume everything will be OK */
-	unsigned opt;
-#if ENABLE_GETOPT_LONG
+	int opt;
+#if ENABLE_FEATURE_GETOPT_LONG
 	int longindex;
 #endif
 	const char *charptr;
 
 	if (quiet_errors) /* No error reporting from getopt(3) */
 		opterr = 0;
-	optind = 0; /* Reset getopt(3) */
+
+	/* We used it already in main() in getopt32(),
+	 * we *must* reset getopt(3): */
+#ifdef __GLIBC__
+	optind = 0;
+#else /* BSD style */
+	optind = 1;
+	/* optreset = 1; */
+#endif
 
 	while (1) {
 		opt =
-#if ENABLE_GETOPT_LONG
+#if ENABLE_FEATURE_GETOPT_LONG
 			alternative ?
 			getopt_long_only(argc, argv, optstr, longopts, &longindex) :
 			getopt_long(argc, argv, optstr, longopts, &longindex);
 #else
 			getopt(argc, argv, optstr);
 #endif
-		if (opt == EOF)
+		if (opt == -1)
 			break;
 		if (opt == '?' || opt == ':' )
 			exit_code = 1;
 		else if (!quiet_output) {
-#if ENABLE_GETOPT_LONG
+#if ENABLE_FEATURE_GETOPT_LONG
 			if (opt == LONG_OPT) {
 				printf(" --%s", longopts[longindex].name);
 				if (longopts[longindex].has_arg)
@@ -183,7 +192,7 @@ static int generate_output(char **argv, int argc, const char *optstr, const stru
 				printf(" %s", normalize(optarg));
 			else {
 				printf(" -%c", opt);
-				charptr = strchr(optstr,opt);
+				charptr = strchr(optstr, opt);
 				if (charptr != NULL && *++charptr == ':')
 					printf(" %s",
 						normalize(optarg ? optarg : ""));
@@ -200,7 +209,7 @@ static int generate_output(char **argv, int argc, const char *optstr, const stru
 	return exit_code;
 }
 
-#if ENABLE_GETOPT_LONG
+#if ENABLE_FEATURE_GETOPT_LONG
 /*
  * Register several long options. options is a string of long options,
  * separated by commas or whitespace.
@@ -231,14 +240,13 @@ static struct option *add_long_options(struct option *long_options, char *option
 				if (tlen == 0)
 					bb_error_msg_and_die("empty long option specified");
 			}
-			long_options = xrealloc(long_options,
-					sizeof(long_options[0]) * (long_nr+2));
+			long_options = xrealloc_vector(long_options, 4, long_nr);
 			long_options[long_nr].has_arg = arg_opt;
-			long_options[long_nr].flag = NULL;
+			/*long_options[long_nr].flag = NULL; - xrealloc_vector did it */
 			long_options[long_nr].val = LONG_OPT;
 			long_options[long_nr].name = xstrdup(tokptr);
 			long_nr++;
-			memset(&long_options[long_nr], 0, sizeof(long_options[0]));
+			/*memset(&long_options[long_nr], 0, sizeof(long_options[0])); - xrealloc_vector did it */
 		}
 		tokptr = strtok(NULL, ", \t\n");
 	}
@@ -248,9 +256,9 @@ static struct option *add_long_options(struct option *long_options, char *option
 
 static void set_shell(const char *new_shell)
 {
-	if (!strcmp(new_shell,"bash") || !strcmp(new_shell,"sh"))
+	if (!strcmp(new_shell, "bash") || !strcmp(new_shell, "sh"))
 		return;
-	if (!strcmp(new_shell,"tcsh") || !strcmp(new_shell,"csh"))
+	if (!strcmp(new_shell, "tcsh") || !strcmp(new_shell, "csh"))
 		option_mask32 |= SHELL_IS_TCSH;
 	else
 		bb_error_msg("unknown shell '%s', assuming bash", new_shell);
@@ -265,7 +273,7 @@ static void set_shell(const char *new_shell)
  *   4) Returned for -T
  */
 
-#if ENABLE_GETOPT_LONG
+#if ENABLE_FEATURE_GETOPT_LONG
 static const char getopt_longopts[] ALIGN1 =
 	"options\0"      Required_argument "o"
 	"longoptions\0"  Required_argument "l"
@@ -287,7 +295,7 @@ int getopt_main(int argc, char **argv)
 	unsigned opt;
 	const char *compatible;
 	char *s_arg;
-#if ENABLE_GETOPT_LONG
+#if ENABLE_FEATURE_GETOPT_LONG
 	struct option *long_options = NULL;
 	llist_t *l_arg = NULL;
 #endif
@@ -313,7 +321,7 @@ int getopt_main(int argc, char **argv)
 		return generate_output(argv+1, argc-1, s, long_options);
 	}
 
-#if !ENABLE_GETOPT_LONG
+#if !ENABLE_FEATURE_GETOPT_LONG
 	opt = getopt32(argv, "+o:n:qQs:Tu", &optstr, &name, &s_arg);
 #else
 	applet_long_options = getopt_longopts;
@@ -322,8 +330,7 @@ int getopt_main(int argc, char **argv)
 					&optstr, &name, &s_arg, &l_arg);
 	/* Effectuate the read options for the applet itself */
 	while (l_arg) {
-		long_options = add_long_options(long_options, l_arg->data);
-		l_arg = l_arg->link;
+		long_options = add_long_options(long_options, llist_pop(&l_arg));
 	}
 #endif
 

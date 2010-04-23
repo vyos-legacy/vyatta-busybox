@@ -85,7 +85,8 @@ typedef struct state_t {
 
 	/* input (compressed) data */
 	unsigned char *bytebuffer;      /* buffer itself */
-	unsigned bytebuffer_max;        /* buffer size */
+	off_t to_read;			/* compressed bytes to read (unzip only, -1 for gunzip) */
+//	unsigned bytebuffer_max;        /* buffer size */
 	unsigned bytebuffer_offset;     /* buffer position */
 	unsigned bytebuffer_size;       /* how much data is there (size <= max) */
 
@@ -126,7 +127,10 @@ typedef struct state_t {
 #define gunzip_crc_table    (S()gunzip_crc_table   )
 #define gunzip_bb           (S()gunzip_bb          )
 #define gunzip_bk           (S()gunzip_bk          )
-#define bytebuffer_max      (S()bytebuffer_max     )
+#define to_read             (S()to_read            )
+// #define bytebuffer_max   (S()bytebuffer_max     )
+// Both gunzip and unzip can use constant buffer size now (16k):
+#define bytebuffer_max      0x4000
 #define bytebuffer          (S()bytebuffer         )
 #define bytebuffer_offset   (S()bytebuffer_offset  )
 #define bytebuffer_size     (S()bytebuffer_size    )
@@ -240,7 +244,7 @@ static void huft_free_all(STATE_PARAM_ONLY)
 	inflate_codes_td = NULL;
 }
 
-static void abort_unzip(STATE_PARAM_ONLY) ATTRIBUTE_NORETURN;
+static void abort_unzip(STATE_PARAM_ONLY) NORETURN;
 static void abort_unzip(STATE_PARAM_ONLY)
 {
 	huft_free_all(PASS_STATE_ONLY);
@@ -251,13 +255,18 @@ static unsigned fill_bitbuffer(STATE_PARAM unsigned bitbuffer, unsigned *current
 {
 	while (*current < required) {
 		if (bytebuffer_offset >= bytebuffer_size) {
+			unsigned sz = bytebuffer_max - 4;
+			if (to_read >= 0 && to_read < sz) /* unzip only */
+				sz = to_read;
 			/* Leave the first 4 bytes empty so we can always unwind the bitbuffer
 			 * to the front of the bytebuffer */
-			bytebuffer_size = safe_read(gunzip_src_fd, &bytebuffer[4], bytebuffer_max - 4);
+			bytebuffer_size = safe_read(gunzip_src_fd, &bytebuffer[4], sz);
 			if ((int)bytebuffer_size < 1) {
 				error_msg = "unexpected end of file";
 				abort_unzip(PASS_STATE_ONLY);
 			}
+			if (to_read >= 0) /* unzip only */
+				to_read -= bytebuffer_size;
 			bytebuffer_size += 4;
 			bytebuffer_offset = 4;
 		}
@@ -494,7 +503,7 @@ static void inflate_codes_setup(STATE_PARAM unsigned my_bl, unsigned my_bd)
 	md = mask_bits[bd];
 }
 /* called once from inflate_get_next_window */
-static int inflate_codes(STATE_PARAM_ONLY)
+static NOINLINE int inflate_codes(STATE_PARAM_ONLY)
 {
 	unsigned e;	/* table entry flag/number of extra bits */
 	huft_t *t;	/* pointer to table entry */
@@ -566,13 +575,16 @@ static int inflate_codes(STATE_PARAM_ONLY)
 			do {
 				/* Was: nn -= (e = (e = GUNZIP_WSIZE - ((dd &= GUNZIP_WSIZE - 1) > w ? dd : w)) > nn ? nn : e); */
 				/* Who wrote THAT?? rewritten as: */
+				unsigned delta;
+
 				dd &= GUNZIP_WSIZE - 1;
 				e = GUNZIP_WSIZE - (dd > w ? dd : w);
+				delta = w > dd ? w - dd : dd - w;
 				if (e > nn) e = nn;
 				nn -= e;
 
 				/* copy to new buffer to prevent possible overwrite */
-				if (w - dd >= e) {	/* (this test assumes unsigned comparison) */
+				if (delta >= e) {
 					memcpy(gunzip_window + w, gunzip_window + dd, e);
 					w += e;
 					dd += e;
@@ -913,7 +925,7 @@ static int inflate_block(STATE_PARAM smallint *e)
 /* Two callsites, both in inflate_get_next_window */
 static void calculate_gunzip_crc(STATE_PARAM_ONLY)
 {
-	int n;
+	unsigned n;
 	for (n = 0; n < gunzip_outbuf_count; n++) {
 		gunzip_crc = gunzip_crc_table[((int) gunzip_crc ^ (gunzip_window[n])) & 0xff] ^ (gunzip_crc >> 8);
 	}
@@ -961,10 +973,10 @@ static int inflate_get_next_window(STATE_PARAM_ONLY)
 
 
 /* Called from unpack_gz_stream() and inflate_unzip() */
-static USE_DESKTOP(long long) int
+static IF_DESKTOP(long long) int
 inflate_unzip_internal(STATE_PARAM int in, int out)
 {
-	USE_DESKTOP(long long) int n = 0;
+	IF_DESKTOP(long long) int n = 0;
 	ssize_t nwrote;
 
 	/* Allocate all global buffers (for DYN_ALLOC option) */
@@ -994,12 +1006,12 @@ inflate_unzip_internal(STATE_PARAM int in, int out)
 	while (1) {
 		int r = inflate_get_next_window(PASS_STATE_ONLY);
 		nwrote = full_write(out, gunzip_window, gunzip_outbuf_count);
-		if (nwrote != gunzip_outbuf_count) {
+		if (nwrote != (ssize_t)gunzip_outbuf_count) {
 			bb_perror_msg("write");
 			n = -1;
 			goto ret;
 		}
-		USE_DESKTOP(n += nwrote;)
+		IF_DESKTOP(n += nwrote;)
 		if (r == 0) break;
 	}
 
@@ -1024,15 +1036,16 @@ inflate_unzip_internal(STATE_PARAM int in, int out)
 
 /* For unzip */
 
-USE_DESKTOP(long long) int
-inflate_unzip(inflate_unzip_result *res, unsigned bufsize, int in, int out)
+IF_DESKTOP(long long) int FAST_FUNC
+inflate_unzip(inflate_unzip_result *res, off_t compr_size, int in, int out)
 {
-	USE_DESKTOP(long long) int n;
+	IF_DESKTOP(long long) int n;
 	DECLARE_STATE;
 
 	ALLOC_STATE;
 
-	bytebuffer_max = bufsize + 4;
+	to_read = compr_size;
+//	bytebuffer_max = 0x8000;
 	bytebuffer_offset = 4;
 	bytebuffer = xmalloc(bytebuffer_max);
 	n = inflate_unzip_internal(PASS_STATE in, out);
@@ -1054,7 +1067,7 @@ static int top_up(STATE_PARAM unsigned n)
 {
 	int count = bytebuffer_size - bytebuffer_offset;
 
-	if (count < n) {
+	if (count < (int)n) {
 		memmove(bytebuffer, &bytebuffer[bytebuffer_offset], count);
 		bytebuffer_offset = 0;
 		bytebuffer_size = full_read(gunzip_src_fd, &bytebuffer[count], bytebuffer_max - count);
@@ -1073,8 +1086,7 @@ static uint16_t buffer_read_le_u16(STATE_PARAM_ONLY)
 {
 	uint16_t res;
 #if BB_LITTLE_ENDIAN
-	/* gcc 4.2.1 is very clever */
-	memcpy(&res, &bytebuffer[bytebuffer_offset], 2);
+	move_from_unaligned16(res, &bytebuffer[bytebuffer_offset]);
 #else
 	res = bytebuffer[bytebuffer_offset];
 	res |= bytebuffer[bytebuffer_offset + 1] << 8;
@@ -1087,7 +1099,7 @@ static uint32_t buffer_read_le_u32(STATE_PARAM_ONLY)
 {
 	uint32_t res;
 #if BB_LITTLE_ENDIAN
-	memcpy(&res, &bytebuffer[bytebuffer_offset], 4);
+	move_from_unaligned32(res, &bytebuffer[bytebuffer_offset]);
 #else
 	res = bytebuffer[bytebuffer_offset];
 	res |= bytebuffer[bytebuffer_offset + 1] << 8;
@@ -1098,18 +1110,21 @@ static uint32_t buffer_read_le_u32(STATE_PARAM_ONLY)
 	return res;
 }
 
-static int check_header_gzip(STATE_PARAM_ONLY)
+static int check_header_gzip(STATE_PARAM unpack_info_t *info)
 {
 	union {
 		unsigned char raw[8];
 		struct {
 			uint8_t gz_method;
 			uint8_t flags;
-			//uint32_t mtime; - unused fields
-			//uint8_t xtra_flags;
-			//uint8_t os_flags;
-		} formatted; /* packed */
+			uint32_t mtime;
+			uint8_t xtra_flags_UNUSED;
+			uint8_t os_flags_UNUSED;
+		} PACKED formatted;
 	} header;
+	struct BUG_header {
+		char BUG_header[sizeof(header) == 8 ? 1 : -1];
+	};
 
 	/*
 	 * Rewind bytebuffer. We use the beginning because the header has 8
@@ -1157,6 +1172,9 @@ static int check_header_gzip(STATE_PARAM_ONLY)
 		}
 	}
 
+	if (info)
+		info->mtime = SWAP_LE32(header.formatted.mtime);
+
 	/* Read the header checksum */
 	if (header.formatted.flags & 0x02) {
 		if (!top_up(PASS_STATE 2))
@@ -1166,22 +1184,23 @@ static int check_header_gzip(STATE_PARAM_ONLY)
 	return 1;
 }
 
-USE_DESKTOP(long long) int
-unpack_gz_stream(int in, int out)
+IF_DESKTOP(long long) int FAST_FUNC
+unpack_gz_stream_with_info(int in, int out, unpack_info_t *info)
 {
 	uint32_t v32;
-	USE_DESKTOP(long long) int n;
+	IF_DESKTOP(long long) int n;
 	DECLARE_STATE;
 
 	n = 0;
 
 	ALLOC_STATE;
-	bytebuffer_max = 0x8000;
+	to_read = -1;
+//	bytebuffer_max = 0x8000;
 	bytebuffer = xmalloc(bytebuffer_max);
 	gunzip_src_fd = in;
 
  again:
-	if (!check_header_gzip(PASS_STATE_ONLY)) {
+	if (!check_header_gzip(PASS_STATE info)) {
 		bb_error_msg("corrupted data");
 		n = -1;
 		goto ret;
@@ -1227,4 +1246,10 @@ unpack_gz_stream(int in, int out)
 	free(bytebuffer);
 	DEALLOC_STATE;
 	return n;
+}
+
+IF_DESKTOP(long long) int FAST_FUNC
+unpack_gz_stream(int in, int out)
+{
+	return unpack_gz_stream_with_info(in, out, NULL);
 }

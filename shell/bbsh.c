@@ -54,7 +54,7 @@ struct command {
 	int flags;		// exit, suspend, && ||
 	int pid;		// pid (or exit code)
 	int argc;
-	char *argv[0];
+	char *argv[];
 };
 
 // A collection of processes piped into/waiting on each other.
@@ -167,8 +167,8 @@ static int run_pipeline(struct pipeline *line)
 		if (!pid) {
 			run_applet_and_exit(cmd->argv[0],cmd->argc,cmd->argv);
 			execvp(cmd->argv[0],cmd->argv);
-			printf("No %s",cmd->argv[0]);
-			exit(1);
+			printf("No %s", cmd->argv[0]);
+			exit(EXIT_FAILURE);
 		} else waitpid(pid, &status, 0);
 	}
 
@@ -199,20 +199,20 @@ static void handle(char *command)
 }
 
 int bbsh_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int bbsh_main(int argc, char **argv)
+int bbsh_main(int argc UNUSED_PARAM, char **argv)
 {
 	char *command=NULL;
 	FILE *f;
 
 	getopt32(argv, "c:", &command);
 
-	f = argv[optind] ? xfopen(argv[optind],"r") : NULL;
+	f = argv[optind] ? xfopen_for_read(argv[optind]) : NULL;
 	if (command) handle(command);
 	else {
 		unsigned cmdlen=0;
 		for (;;) {
 			if (!f) putchar('$');
-			if (1 > getline(&command, &cmdlen,f ? : stdin)) break;
+			if (1 > getline(&command, &cmdlen, f ? f : stdin)) break;
 
 			handle(command);
 		}

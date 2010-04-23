@@ -20,20 +20,21 @@
 /* This is a NOFORK applet. Be very careful! */
 
 int rm_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int rm_main(int argc, char **argv)
+int rm_main(int argc UNUSED_PARAM, char **argv)
 {
 	int status = 0;
 	int flags = 0;
 	unsigned opt;
 
 	opt_complementary = "f-i:i-f";
-	opt = getopt32(argv, "fiRr");
+	/* -v (verbose) is ignored */
+	opt = getopt32(argv, "fiRrv");
 	argv += optind;
 	if (opt & 1)
 		flags |= FILEUTILS_FORCE;
 	if (opt & 2)
 		flags |= FILEUTILS_INTERACTIVE;
-	if (opt & 12)
+	if (opt & (8|4))
 		flags |= FILEUTILS_RECUR;
 
 	if (*argv != NULL) {
@@ -41,7 +42,7 @@ int rm_main(int argc, char **argv)
 			const char *base = bb_get_last_path_component_strip(*argv);
 
 			if (DOT_OR_DOTDOT(base)) {
-				bb_error_msg("cannot remove '.' or '..'");
+				bb_error_msg("can't remove '.' or '..'");
 			} else if (remove_file(*argv, flags) >= 0) {
 				continue;
 			}

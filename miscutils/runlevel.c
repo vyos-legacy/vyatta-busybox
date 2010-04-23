@@ -9,19 +9,18 @@
  *
  * Licensed under the GPL v2 or later, see the file LICENSE in this tarball.
  *
- * initially busyboxified by Bernhard Fischer
+ * initially busyboxified by Bernhard Reutner-Fischer
  */
-
-#include <utmp.h>
 #include "libbb.h"
+#include <utmp.h>
 
 int runlevel_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int runlevel_main(int argc, char **argv)
+int runlevel_main(int argc UNUSED_PARAM, char **argv)
 {
 	struct utmp *ut;
 	char prev;
 
-	if (argc > 1) utmpname(argv[1]);
+	if (argv[1]) utmpname(argv[1]);
 
 	setutent();
 	while ((ut = getutent()) != NULL) {

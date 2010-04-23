@@ -67,7 +67,7 @@ static int decode_arg(const char *arg, struct globals *gp)
 
 static void change_attributes(const char *name, struct globals *gp);
 
-static int chattr_dir_proc(const char *dir_name, struct dirent *de, void *gp)
+static int FAST_FUNC chattr_dir_proc(const char *dir_name, struct dirent *de, void *gp)
 {
 	char *path = concat_subpath_file(dir_name, de->d_name);
 	/* path is NULL if de->d_name is "." or "..", else... */
@@ -125,7 +125,7 @@ static void change_attributes(const char *name, struct globals *gp)
 }
 
 int chattr_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int chattr_main(int argc, char **argv)
+int chattr_main(int argc UNUSED_PARAM, char **argv)
 {
 	struct globals g;
 	char *arg;

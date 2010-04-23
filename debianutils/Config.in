@@ -26,8 +26,8 @@ config RUN_PARTS
 	  It is useful to set up a directory like cron.daily, where you need to
 	  execute all the scripts in that directory.
 
-	  In this implementation of run-parts some features (such as report mode)
-	  are not implemented.
+	  In this implementation of run-parts some features (such as report
+	  mode) are not implemented.
 
 	  Unless you know that run-parts is used in some of your scripts
 	  you can safely say N here.
@@ -35,7 +35,7 @@ config RUN_PARTS
 config FEATURE_RUN_PARTS_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on RUN_PARTS && GETOPT_LONG
+	depends on RUN_PARTS && LONG_OPTS
 	help
 	  Support long options for the run-parts applet.
 
@@ -50,7 +50,7 @@ config FEATURE_RUN_PARTS_FANCY
 
 config START_STOP_DAEMON
 	bool "start-stop-daemon"
-	default y
+	default n
 	help
 	  start-stop-daemon is used to control the creation and
 	  termination of system-level processes, usually the ones
@@ -58,17 +58,18 @@ config START_STOP_DAEMON
 
 config FEATURE_START_STOP_DAEMON_FANCY
 	bool "Support additional arguments"
-	default y
+	default n
 	depends on START_STOP_DAEMON
 	help
 	  Support additional arguments.
 	  -o|--oknodo ignored since we exit with 0 anyway
 	  -v|--verbose
+	  -N|--nicelevel N
 
 config FEATURE_START_STOP_DAEMON_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on START_STOP_DAEMON && GETOPT_LONG
+	depends on START_STOP_DAEMON && LONG_OPTS
 	help
 	  Support long options for the start-stop-daemon applet.
 

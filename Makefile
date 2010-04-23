@@ -1,7 +1,7 @@
 VERSION = 1
-PATCHLEVEL = 9
-SUBLEVEL = 2
-EXTRAVERSION =
+PATCHLEVEL = 17
+SUBLEVEL = 0
+EXTRAVERSION = .git
 NAME = Unnamed
 
 # *DOCUMENTATION*
@@ -142,17 +142,6 @@ VPATH		:= $(srctree)$(if $(KBUILD_EXTMOD),:$(KBUILD_EXTMOD))
 export srctree objtree VPATH TOPDIR
 
 
-# SUBARCH tells the usermode build what the underlying arch is.  That is set
-# first, and if a usermode build is happening, the "ARCH=um" on the command
-# line overrides the setting of ARCH below.  If a native build is happening,
-# then ARCH is assigned, getting whatever value it gets normally, and
-# SUBARCH is subsequently ignored.
-
-SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
-				  -e s/arm.*/arm/ -e s/sa110/arm/ \
-				  -e s/s390x/s390/ -e s/parisc64/parisc/ \
-				  -e s/ppc.*/powerpc/ -e s/mips.*/mips/ )
-
 # Cross compiling and selecting different set of gcc/bin-utils
 # ---------------------------------------------------------------------------
 #
@@ -172,8 +161,33 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
 
-ARCH		?= $(SUBARCH)
-CROSS_COMPILE	?=
+CROSS_COMPILE ?=
+# bbox: we may have CONFIG_CROSS_COMPILER_PREFIX in .config,
+# and it has not been included yet... thus using an awkward syntax.
+ifeq ($(CROSS_COMPILE),)
+CROSS_COMPILE := $(shell grep ^CONFIG_CROSS_COMPILER_PREFIX .config 2>/dev/null)
+CROSS_COMPILE := $(subst CONFIG_CROSS_COMPILER_PREFIX=,,$(CROSS_COMPILE))
+CROSS_COMPILE := $(subst ",,$(CROSS_COMPILE))
+#")
+endif
+
+# SUBARCH tells the usermode build what the underlying arch is.  That is set
+# first, and if a usermode build is happening, the "ARCH=um" on the command
+# line overrides the setting of ARCH below.  If a native build is happening,
+# then ARCH is assigned, getting whatever value it gets normally, and
+# SUBARCH is subsequently ignored.
+
+ifneq ($(CROSS_COMPILE),)
+SUBARCH := $(shell echo $(CROSS_COMPILE) | cut -d- -f1)
+else
+SUBARCH := $(shell uname -m)
+endif
+SUBARCH := $(shell echo $(SUBARCH) | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
+					 -e s/arm.*/arm/ -e s/sa110/arm/ \
+					 -e s/s390x/s390/ -e s/parisc64/parisc/ \
+					 -e s/ppc.*/powerpc/ -e s/mips.*/mips/ )
+
+ARCH ?= $(SUBARCH)
 
 # Architecture as present in compile.h
 UTS_MACHINE := $(ARCH)
@@ -302,6 +316,8 @@ AFLAGS_KERNEL	=
 # Use LINUXINCLUDE when you must reference the include/ directory.
 # Needed to be compatible with the O= option
 CFLAGS		:= $(CFLAGS)
+# Added only to final link stage of busybox binary
+CFLAGS_busybox	:= $(CFLAGS_busybox)
 CPPFLAGS	:= $(CPPFLAGS)
 AFLAGS		:= $(AFLAGS)
 LDFLAGS		:= $(LDFLAGS)
@@ -342,6 +358,15 @@ scripts_basic:
 # To avoid any implicit rule to kick in, define an empty command.
 scripts/basic/%: scripts_basic ;
 
+# bbox: we have helpers in applets/
+# we depend on scripts_basic, since scripts/basic/fixdep
+# must be built before any other host prog
+PHONY += applets_dir
+applets_dir: scripts_basic
+	$(Q)$(MAKE) $(build)=applets
+
+applets/%: applets_dir ;
+
 PHONY += outputmakefile
 # outputmakefile generates a Makefile in the output directory, if using a
 # separate output directory. This allows convenient use of make in the
@@ -361,7 +386,8 @@ endif
 # of make so .config is not included in this case either (for *config).
 
 no-dot-config-targets := clean mrproper distclean \
-			 cscope TAGS tags help %docs check%
+			 cscope TAGS tags help %docs
+#bbox# check% is removed from above
 
 config-targets := 0
 mixed-targets  := 0
@@ -437,21 +463,23 @@ libs-y		:= \
 		editors/ \
 		findutils/ \
 		init/ \
-		ipsvd/ \
 		libbb/ \
 		libpwdgrp/ \
 		loginutils/ \
+		mailutils/ \
 		miscutils/ \
 		modutils/ \
 		networking/ \
 		networking/libiproute/ \
 		networking/udhcp/ \
+		printutils/ \
 		procps/ \
 		runit/ \
 		selinux/ \
 		shell/ \
 		sysklogd/ \
 		util-linux/ \
+		util-linux/volume_id/ \
 
 endif # KBUILD_EXTMOD
 
@@ -488,19 +516,13 @@ endif
 # command line.
 # This allow a user to issue only 'make' to build a kernel including modules
 # Defaults busybox but it is usually overridden in the arch makefile
-all: busybox
+all: busybox doc
 
 -include $(srctree)/arch/$(ARCH)/Makefile
 
 # arch Makefile may override CC so keep this after arch Makefile is included
 #bbox# NOSTDINC_FLAGS += -nostdinc -isystem $(shell $(CC) -print-file-name=include)
 CHECKFLAGS += $(NOSTDINC_FLAGS)
-
-# warn about C99 declaration after statement
-CFLAGS += $(call cc-option,-Wdeclaration-after-statement,)
-
-# disable pointer signedness warnings in gcc 4.0
-CFLAGS += $(call cc-option,-Wno-pointer-sign,)
 
 # Default kernel image to build when no specific target is given.
 # KBUILD_IMAGE may be overruled on the commandline or
@@ -571,6 +593,7 @@ quiet_cmd_busybox__ ?= LINK    $@
       cmd_busybox__ ?= $(srctree)/scripts/trylink \
       "$@" \
       "$(CC)" \
+      "$(CFLAGS) $(CFLAGS_busybox)" \
       "$(LDFLAGS) $(EXTRA_LDFLAGS)" \
       "$(core-y)" \
       "$(libs-y)" \
@@ -686,6 +709,8 @@ ifeq ($(SKIP_STRIP),y)
 else
 	$(Q)$(STRIP) -s --remove-section=.note --remove-section=.comment \
 		busybox_unstripped -o $@
+# strip is confused by PIE executable and does not set exec bits
+	$(Q)chmod a+x $@
 endif
 
 # The actual objects are generated when descending,
@@ -729,7 +754,7 @@ localver = $(subst $(space),, \
 # Currently, only git is supported.
 # Other SCMs can edit scripts/setlocalversion and add the appropriate
 # checks as needed.
-ifdef CONFIG_LOCALVERSION_AUTO
+ifdef _BB_DISABLED_CONFIG_LOCALVERSION_AUTO
 	_localver-auto = $(shell $(CONFIG_SHELL) \
 	                  $(srctree)/scripts/setlocalversion $(srctree))
 	localver-auto  = $(LOCALVERSION)$(_localver-auto)
@@ -781,7 +806,7 @@ ifneq ($(KBUILD_MODULES),)
 	$(Q)rm -f $(MODVERDIR)/*
 endif
 
-archprepare: prepare1 scripts_basic
+archprepare: prepare1 scripts_basic applets_dir
 
 prepare0: archprepare FORCE
 	$(Q)$(MAKE) $(build)=.
@@ -842,7 +867,7 @@ depend dep:
 # ---------------------------------------------------------------------------
 # Modules
 
-ifdef CONFIG_MODULES
+ifdef _BB_DISABLED_CONFIG_MODULES
 
 # 	By default, build modules as well
 
@@ -918,8 +943,9 @@ endif # CONFIG_MODULES
 # make distclean Remove editor backup files, patch leftover files and the like
 
 # Directories & files removed with 'make clean'
-CLEAN_DIRS  += $(MODVERDIR)
-CLEAN_FILES +=	busybox* System.map .kernelrelease \
+CLEAN_DIRS  += $(MODVERDIR) _install 0_lib
+CLEAN_FILES +=	busybox busybox_unstripped* busybox.links \
+                System.map .kernelrelease \
                 .tmp_kallsyms* .tmp_version .tmp_busybox* .tmp_System.map
 
 # Directories & files removed with 'make mrproper'
@@ -930,7 +956,8 @@ MRPROPER_FILES += .config .config.old include/asm .version .old_version \
 		  include/usage_compressed.h \
 		  include/applet_tables.h \
 		  applets/usage \
-		  .kernelrelease Module.symvers tags TAGS cscope*
+		  .kernelrelease Module.symvers tags TAGS cscope* \
+		  busybox_old
 
 # clean - Delete most, but leave enough to build external modules
 #
@@ -946,9 +973,15 @@ clean: archclean $(clean-dirs)
 	$(call cmd,rmdirs)
 	$(call cmd,rmfiles)
 	@find . $(RCS_FIND_IGNORE) \
-	 	\( -name '*.[oas]' -o -name '*.ko' -o -name '.*.cmd' \
+		\( -name '*.[oas]' -o -name '*.ko' -o -name '.*.cmd' \
 		-o -name '.*.d' -o -name '.*.tmp' -o -name '*.mod.c' \) \
 		-type f -print | xargs rm -f
+
+PHONY += doc-clean
+doc-clean: rm-files := docs/busybox.pod \
+		  docs/BusyBox.html docs/BusyBox.1 docs/BusyBox.txt
+doc-clean:
+	$(call cmd,rmfiles)
 
 # mrproper - Delete all generated files, including .config
 #
@@ -970,9 +1003,9 @@ PHONY += distclean
 
 distclean: mrproper
 	@find $(srctree) $(RCS_FIND_IGNORE) \
-	 	\( -name '*.orig' -o -name '*.rej' -o -name '*~' \
+		\( -name '*.orig' -o -name '*.rej' -o -name '*~' \
 		-o -name '*.bak' -o -name '#*#' -o -name '.*.orig' \
-	 	-o -name '.*.rej' -o -name '*.tmp' -o -size 0 \
+		-o -name '.*.rej' -o -name '*.tmp' -o -size 0 \
 		-o -name '*%' -o -name '.*.cmd' -o -name 'core' \) \
 		-type f -print | xargs rm -f
 
@@ -1076,7 +1109,7 @@ clean:	rm-dirs := $(MODVERDIR)
 clean: $(clean-dirs)
 	$(call cmd,rmdirs)
 	@find $(KBUILD_EXTMOD) $(RCS_FIND_IGNORE) \
-	 	\( -name '*.[oas]' -o -name '*.ko' -o -name '.*.cmd' \
+		\( -name '*.[oas]' -o -name '*.ko' -o -name '.*.cmd' \
 		-o -name '.*.d' -o -name '.*.tmp' -o -name '*.mod.c' \) \
 		-type f -print | xargs rm -f
 

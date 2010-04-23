@@ -7,30 +7,13 @@
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
  */
 
+/*
+ * Done in syslogd_and_logger.c:
 #include "libbb.h"
-
-#if !defined CONFIG_SYSLOGD
-
-/* SYSLOG_NAMES defined to pull prioritynames[] and facilitynames[]
- * from syslog.h. Grrrr - glibc puts those in _rwdata_! :( */
 #define SYSLOG_NAMES
-#define SYSLOG_NAMES_CONST /* uclibc is saner :) */
-#include <sys/syslog.h>
-
-#else
-#include <sys/syslog.h>
-#  ifndef __dietlibc__
-	/* We have to do this since the header file defines static
-	 * structures.  Argh.... bad libc, bad, bad...
-	 */
-	typedef struct _code {
-		char *c_name;
-		int c_val;
-	} CODE;
-	extern CODE prioritynames[];
-	extern CODE facilitynames[];
-#  endif
-#endif
+#define SYSLOG_NAMES_CONST
+#include <syslog.h>
+*/
 
 /* Decode a symbolic name to a numeric value
  * this function is based on code
@@ -83,33 +66,31 @@ static int pencode(char *s)
 	return ((lev & LOG_PRIMASK) | (fac & LOG_FACMASK));
 }
 
+#define strbuf bb_common_bufsiz1
 
 int logger_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int logger_main(int argc, char **argv)
+int logger_main(int argc UNUSED_PARAM, char **argv)
 {
 	char *str_p, *str_t;
+	int opt;
 	int i = 0;
-	char name[80];
 
 	/* Fill out the name string early (may be overwritten later) */
-	bb_getpwuid(name, sizeof(name), geteuid());
-	str_t = name;
+	str_t = uid2uname_utoa(geteuid());
 
 	/* Parse any options */
-	getopt32(argv, "p:st:", &str_p, &str_t);
+	opt = getopt32(argv, "p:st:", &str_p, &str_t);
 
-	if (option_mask32 & 0x2) /* -s */
+	if (opt & 0x2) /* -s */
 		i |= LOG_PERROR;
-	//if (option_mask32 & 0x4) /* -t */
+	//if (opt & 0x4) /* -t */
 	openlog(str_t, i, 0);
 	i = LOG_USER | LOG_NOTICE;
-	if (option_mask32 & 0x1) /* -p */
+	if (opt & 0x1) /* -p */
 		i = pencode(str_p);
 
-	argc -= optind;
 	argv += optind;
-	if (!argc) {
-#define strbuf bb_common_bufsiz1
+	if (!argv[0]) {
 		while (fgets(strbuf, COMMON_BUFSIZE, stdin)) {
 			if (strbuf[0]
 			 && NOT_LONE_CHAR(strbuf, '\n')
@@ -135,6 +116,8 @@ int logger_main(int argc, char **argv)
 	return EXIT_SUCCESS;
 }
 
+/* Clean up. Needed because we are included from syslogd_and_logger.c */
+#undef strbuf
 
 /*-
  * Copyright (c) 1983, 1993

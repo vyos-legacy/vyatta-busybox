@@ -1,8 +1,8 @@
 #if ENABLE_FEATURE_AIX_LABEL
 /*
  * Copyright (C) Andreas Neuper, Sep 1998.
- *      This file may be redistributed under
- *      the terms of the GNU Public License.
+ *
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 typedef struct {
@@ -29,8 +29,8 @@ typedef struct {
   *      Some fixes
 */
 
-static int aix_other_endian;
-static short aix_volumes = 1;
+static smallint aix_other_endian; /* bool */
+static smallint aix_volumes = 1; /* max 15 */
 
 /*
  * only dealing with free blocks here
@@ -54,15 +54,16 @@ aix_info(void)
 static int
 check_aix_label(void)
 {
-	if (aixlabel->magic != AIX_LABEL_MAGIC &&
-		aixlabel->magic != AIX_LABEL_MAGIC_SWAPPED) {
+	if (aixlabel->magic != AIX_LABEL_MAGIC
+	 && aixlabel->magic != AIX_LABEL_MAGIC_SWAPPED
+	) {
 		current_label_type = 0;
 		aix_other_endian = 0;
 		return 0;
 	}
 	aix_other_endian = (aixlabel->magic == AIX_LABEL_MAGIC_SWAPPED);
 	update_units();
-	current_label_type = label_aix;
+	current_label_type = LABEL_AIX;
 	g_partitions = 1016;
 	aix_volumes = 15;
 	aix_info();

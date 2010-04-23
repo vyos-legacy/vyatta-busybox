@@ -115,8 +115,10 @@ int rpm_main(int argc, char **argv)
 		}
 	}
 	argv += optind;
-	argc -= optind;
-	if (!argc) bb_show_usage();
+	//argc -= optind;
+	if (!argv[0]) {
+		bb_show_usage();
+	}
 
 	while (*argv) {
 		rpm_fd = xopen(*argv++, O_RDONLY);
@@ -143,13 +145,13 @@ int rpm_main(int argc, char **argv)
 			if (func & rpm_query_info) {
 				/* Do the nice printout */
 				time_t bdate_time;
-				struct tm *bdate;
+				struct tm *bdate_ptm;
 				char bdatestring[50];
 				printf("Name        : %-29sRelocations: %s\n", rpm_getstr(TAG_NAME, 0), rpm_getstr(TAG_PREFIXS, 0) ? rpm_getstr(TAG_PREFIXS, 0) : "(not relocateable)");
 				printf("Version     : %-34sVendor: %s\n", rpm_getstr(TAG_VERSION, 0), rpm_getstr(TAG_VENDOR, 0) ? rpm_getstr(TAG_VENDOR, 0) : "(none)");
 				bdate_time = rpm_getint(TAG_BUILDTIME, 0);
-				bdate = localtime((time_t *) &bdate_time);
-				strftime(bdatestring, 50, "%a %d %b %Y %T %Z", bdate);
+				bdate_ptm = localtime(&bdate_time);
+				strftime(bdatestring, 50, "%a %d %b %Y %T %Z", bdate_ptm);
 				printf("Release     : %-30sBuild Date: %s\n", rpm_getstr(TAG_RELEASE, 0), bdatestring);
 				printf("Install date: %-30sBuild Host: %s\n", "(not installed)", rpm_getstr(TAG_BUILDHOST, 0));
 				printf("Group       : %-30sSource RPM: %s\n", rpm_getstr(TAG_GROUP, 0), rpm_getstr(TAG_SOURCERPM, 0));
@@ -190,7 +192,7 @@ static void extract_cpio_gz(int fd)
 	archive_handle_t *archive_handle;
 	unsigned char magic[2];
 #if BB_MMU
-	USE_DESKTOP(long long) int (*xformer)(int src_fd, int dst_fd);
+	IF_DESKTOP(long long) int FAST_FUNC (*xformer)(int src_fd, int dst_fd);
 	enum { xformer_prog = 0 };
 #else
 	enum { xformer = 0 };
@@ -202,10 +204,16 @@ static void extract_cpio_gz(int fd)
 	archive_handle->seek = seek_by_read;
 	//archive_handle->action_header = header_list;
 	archive_handle->action_data = data_extract_all;
-	archive_handle->flags |= ARCHIVE_PRESERVE_DATE;
-	archive_handle->flags |= ARCHIVE_CREATE_LEADING_DIRS;
+	archive_handle->ah_flags = ARCHIVE_RESTORE_DATE | ARCHIVE_CREATE_LEADING_DIRS
+		/* compat: overwrite existing files.
+		 * try "rpm -i foo.src.rpm" few times in a row -
+		 * standard rpm will not complain.
+		 * (TODO? real rpm creates "file;1234" and then renames it) */
+		| ARCHIVE_UNLINK_OLD;
 	archive_handle->src_fd = fd;
-	archive_handle->offset = 0;
+	/*archive_handle->offset = 0; - init_handle() did it */
+
+// TODO: open_zipped does the same
 
 	xread(archive_handle->src_fd, &magic, 2);
 #if BB_MMU
@@ -213,21 +221,19 @@ static void extract_cpio_gz(int fd)
 #else
 	xformer_prog = "gunzip";
 #endif
-	if ((magic[0] != 0x1f) || (magic[1] != 0x8b)) {
-		if (ENABLE_FEATURE_RPM_BZ2
-		 && (magic[0] == 0x42) && (magic[1] == 0x5a)) {
-#if BB_MMU
-			xformer = unpack_bz2_stream;
-#else
-			xformer_prog = "bunzip2";
-#endif
-	/* We can do better, need modifying unpack_bz2_stream to not require
-	 * first 2 bytes. Not very hard to do... I mean, TODO :) */
-			xlseek(archive_handle->src_fd, -2, SEEK_CUR);
-		} else
+	if (magic[0] != 0x1f || magic[1] != 0x8b) {
+		if (!ENABLE_FEATURE_SEAMLESS_BZ2
+		 || magic[0] != 'B' || magic[1] != 'Z'
+		) {
 			bb_error_msg_and_die("no gzip"
-				USE_FEATURE_RPM_BZ2("/bzip")
+				IF_FEATURE_SEAMLESS_BZ2("/bzip2")
 				" magic");
+		}
+#if BB_MMU
+		xformer = unpack_bz2_stream;
+#else
+		xformer_prog = "bunzip2";
+#endif
 	} else {
 #if !BB_MMU
 		/* NOMMU version of open_transformer execs an external unzipper that should
@@ -237,7 +243,7 @@ static void extract_cpio_gz(int fd)
 	}
 
 	xchdir("/"); /* Install RPM's to root */
-	archive_handle->src_fd = open_transformer(archive_handle->src_fd, xformer, xformer_prog);
+	open_transformer(archive_handle->src_fd, xformer, xformer_prog);
 	archive_handle->offset = 0;
 	while (get_header_cpio(archive_handle) == EXIT_SUCCESS)
 		continue;
@@ -247,7 +253,7 @@ static void extract_cpio_gz(int fd)
 static rpm_index **rpm_gettags(int fd, int *num_tags)
 {
 	/* We should never need mode than 200, and realloc later */
-	rpm_index **tags = xzalloc(200 * sizeof(struct rpmtag *));
+	rpm_index **tags = xzalloc(200 * sizeof(tags[0]));
 	int pass, tagindex = 0;
 
 	xlseek(fd, 96, SEEK_CUR); /* Seek past the unused lead */
@@ -261,6 +267,9 @@ static rpm_index **rpm_gettags(int fd, int *num_tags)
 			uint32_t entries; /* Number of entries in header (4 bytes) */
 			uint32_t size; /* Size of store (4 bytes) */
 		} header;
+		struct BUG_header {
+			char BUG_header[sizeof(header) == 16 ? 1 : -1];
+		};
 		rpm_index *tmpindex;
 		int storepos;
 
@@ -274,21 +283,21 @@ static rpm_index **rpm_gettags(int fd, int *num_tags)
 		storepos = xlseek(fd,0,SEEK_CUR) + header.entries * 16;
 
 		while (header.entries--) {
-			tmpindex = tags[tagindex++] = xmalloc(sizeof(rpm_index));
-			xread(fd, tmpindex, sizeof(rpm_index));
+			tmpindex = tags[tagindex++] = xmalloc(sizeof(*tmpindex));
+			xread(fd, tmpindex, sizeof(*tmpindex));
 			tmpindex->tag = ntohl(tmpindex->tag);
 			tmpindex->type = ntohl(tmpindex->type);
 			tmpindex->count = ntohl(tmpindex->count);
 			tmpindex->offset = storepos + ntohl(tmpindex->offset);
-			if (pass==0)
+			if (pass == 0)
 				tmpindex->tag -= 743;
 		}
 		xlseek(fd, header.size, SEEK_CUR); /* Seek past store */
 		/* Skip padding to 8 byte boundary after reading signature headers */
-		if (pass==0)
+		if (pass == 0)
 			xlseek(fd, (8 - (xlseek(fd,0,SEEK_CUR) % 8)) % 8, SEEK_CUR);
 	}
-	tags = xrealloc(tags, tagindex * sizeof(struct rpmtag *)); /* realloc tags to save space */
+	tags = xrealloc(tags, tagindex * sizeof(tags[0])); /* realloc tags to save space */
 	*num_tags = tagindex;
 	return tags; /* All done, leave the file at the start of the gzipped cpio archive */
 }
@@ -317,7 +326,7 @@ static char *rpm_getstr(int tag, int itemindex)
 		return NULL;
 	if (found[0]->type == RPM_STRING_TYPE || found[0]->type == RPM_I18NSTRING_TYPE || found[0]->type == RPM_STRING_ARRAY_TYPE) {
 		int n;
-		char *tmpstr = (char *) (map + found[0]->offset);
+		char *tmpstr = (char *) map + found[0]->offset;
 		for (n=0; n < itemindex; n++)
 			tmpstr = tmpstr + strlen(tmpstr) + 1;
 		return tmpstr;
@@ -336,7 +345,7 @@ static int rpm_getint(int tag, int itemindex)
 	if (!found || itemindex >= found[0]->count)
 		return -1;
 
-	tmpint = (int *) (map + found[0]->offset);
+	tmpint = (int *) ((char *) map + found[0]->offset);
 
 	if (found[0]->type == RPM_INT32_TYPE) {
 		tmpint = (int *) ((char *) tmpint + itemindex*4);
@@ -379,9 +388,11 @@ static void fileaction_dobackup(char *filename, int fileref)
 
 static void fileaction_setowngrp(char *filename, int fileref)
 {
-	int uid, gid;
-	uid = xuname2uid(rpm_getstr(TAG_FILEUSERNAME, fileref));
-	gid = xgroup2gid(rpm_getstr(TAG_FILEGROUPNAME, fileref));
+	/* real rpm warns: "user foo does not exist - using <you>" */
+	struct passwd *pw = getpwnam(rpm_getstr(TAG_FILEUSERNAME, fileref));
+	int uid = pw ? pw->pw_uid : getuid(); /* or euid? */
+	struct group *gr = getgrnam(rpm_getstr(TAG_FILEGROUPNAME, fileref));
+	int gid = gr ? gr->gr_gid : getgid();
 	chown(filename, uid, gid);
 }
 

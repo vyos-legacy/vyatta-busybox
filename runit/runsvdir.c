@@ -25,7 +25,7 @@ OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/* Busyboxed by Denis Vlasenko <vda.linux@googlemail.com> */
+/* Busyboxed by Denys Vlasenko <vda.linux@googlemail.com> */
 /* TODO: depends on runit_lib.c - review and reduce/eliminate */
 
 #include <sys/poll.h>
@@ -35,28 +35,45 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define MAXSERVICES 1000
 
+/* Should be not needed - all dirs are on same FS, right? */
+#define CHECK_DEVNO_TOO 0
+
 struct service {
+#if CHECK_DEVNO_TOO
 	dev_t dev;
+#endif
 	ino_t ino;
 	pid_t pid;
 	smallint isgone;
 };
 
-static struct service *sv;
-static char *svdir;
-static int svnum;
-static char *rplog;
-static int rploglen;
-static int logpipe[2];
-static struct pollfd pfd[1];
-static unsigned stamplog;
-static smallint check = 1;
-static smallint exitsoon;
-static smallint set_pgrp;
+struct globals {
+	struct service *sv;
+	char *svdir;
+	int svnum;
+#if ENABLE_FEATURE_RUNSVDIR_LOG
+	char *rplog;
+	int rploglen;
+	struct fd_pair logpipe;
+	struct pollfd pfd[1];
+	unsigned stamplog;
+#endif
+} FIX_ALIASING;
+#define G (*(struct globals*)&bb_common_bufsiz1)
+#define sv          (G.sv          )
+#define svdir       (G.svdir       )
+#define svnum       (G.svnum       )
+#define rplog       (G.rplog       )
+#define rploglen    (G.rploglen    )
+#define logpipe     (G.logpipe     )
+#define pfd         (G.pfd         )
+#define stamplog    (G.stamplog    )
+#define INIT_G() do { \
+} while (0)
 
 static void fatal2_cannot(const char *m1, const char *m2)
 {
-	bb_perror_msg_and_die("%s: fatal: cannot %s%s", svdir, m1, m2);
+	bb_perror_msg_and_die("%s: fatal: can't %s%s", svdir, m1, m2);
 	/* was exiting 100 */
 }
 static void warn3x(const char *m1, const char *m2, const char *m3)
@@ -65,147 +82,134 @@ static void warn3x(const char *m1, const char *m2, const char *m3)
 }
 static void warn2_cannot(const char *m1, const char *m2)
 {
-	warn3x("cannot ", m1, m2);
+	warn3x("can't ", m1, m2);
 }
+#if ENABLE_FEATURE_RUNSVDIR_LOG
 static void warnx(const char *m1)
 {
 	warn3x(m1, "", "");
 }
+#endif
 
-static void s_term(int sig_no)
-{
-	exitsoon = 1;
-}
-static void s_hangup(int sig_no)
-{
-	exitsoon = 2;
-}
-
-static void runsv(int no, const char *name)
+/* inlining + vfork -> bigger code */
+static NOINLINE pid_t runsv(const char *name)
 {
 	pid_t pid;
-	char *prog[3];
 
-	prog[0] = (char*)"runsv";
-	prog[1] = (char*)name;
-	prog[2] = NULL;
+	/* If we got signaled, stop spawning children at once! */
+	if (bb_got_signal)
+		return 0;
 
 	pid = vfork();
-
 	if (pid == -1) {
 		warn2_cannot("vfork", "");
-		return;
+		return 0;
 	}
 	if (pid == 0) {
 		/* child */
-		if (set_pgrp)
+		if (option_mask32 & 1) /* -P option? */
 			setsid();
-		signal(SIGHUP, SIG_DFL);
-		signal(SIGTERM, SIG_DFL);
-		execvp(prog[0], prog);
+/* man execv:
+ * "Signals set to be caught by the calling process image
+ *  shall be set to the default action in the new process image."
+ * Therefore, we do not need this: */
+#if 0
+		bb_signals(0
+			| (1 << SIGHUP)
+			| (1 << SIGTERM)
+			, SIG_DFL);
+#endif
+		execlp("runsv", "runsv", name, (char *) NULL);
 		fatal2_cannot("start runsv ", name);
 	}
-	sv[no].pid = pid;
+	return pid;
 }
 
-static void runsvdir(void)
+/* gcc 4.3.0 does better with NOINLINE */
+static NOINLINE int do_rescan(void)
 {
 	DIR *dir;
-	direntry *d;
+	struct dirent *d;
 	int i;
 	struct stat s;
+	int need_rescan = 0;
 
 	dir = opendir(".");
 	if (!dir) {
 		warn2_cannot("open directory ", svdir);
-		return;
+		return 1; /* need to rescan again soon */
 	}
 	for (i = 0; i < svnum; i++)
 		sv[i].isgone = 1;
-	errno = 0;
-	while ((d = readdir(dir))) {
+
+	while (1) {
+		errno = 0;
+		d = readdir(dir);
+		if (!d)
+			break;
 		if (d->d_name[0] == '.')
 			continue;
 		if (stat(d->d_name, &s) == -1) {
 			warn2_cannot("stat ", d->d_name);
-			errno = 0;
 			continue;
 		}
 		if (!S_ISDIR(s.st_mode))
 			continue;
+		/* Do we have this service listed already? */
 		for (i = 0; i < svnum; i++) {
-			if ((sv[i].ino == s.st_ino) && (sv[i].dev == s.st_dev)) {
-				sv[i].isgone = 0;
-				if (!sv[i].pid)
-					runsv(i, d->d_name);
-				break;
+			if ((sv[i].ino == s.st_ino)
+#if CHECK_DEVNO_TOO
+			 && (sv[i].dev == s.st_dev)
+#endif
+			) {
+				if (sv[i].pid == 0) /* restart if it has died */
+					goto run_ith_sv;
+				sv[i].isgone = 0; /* "we still see you" */
+				goto next_dentry;
 			}
 		}
-		if (i == svnum) {
-			/* new service */
+		{ /* Not found, make new service */
 			struct service *svnew = realloc(sv, (i+1) * sizeof(*sv));
 			if (!svnew) {
-				warn3x("cannot start runsv ", d->d_name,
-						" too many services");
+				warn2_cannot("start runsv ", d->d_name);
+				need_rescan = 1;
 				continue;
 			}
 			sv = svnew;
 			svnum++;
-			memset(&sv[i], 0, sizeof(sv[i]));
-			sv[i].ino = s.st_ino;
+#if CHECK_DEVNO_TOO
 			sv[i].dev = s.st_dev;
-			/*sv[i].pid = 0;*/
-			/*sv[i].isgone = 0;*/
-			runsv(i, d->d_name);
-			check = 1;
+#endif
+			sv[i].ino = s.st_ino;
+ run_ith_sv:
+			sv[i].pid = runsv(d->d_name);
+			sv[i].isgone = 0;
 		}
+ next_dentry: ;
 	}
-	if (errno) {
-		warn2_cannot("read directory ", svdir);
-		closedir(dir);
-		check = 1;
-		return;
-	}
+	i = errno;
 	closedir(dir);
+	if (i) { /* readdir failed */
+		warn2_cannot("read directory ", svdir);
+		return 1; /* need to rescan again soon */
+	}
 
-	/* SIGTERM removed runsv's */
+	/* Send SIGTERM to runsv whose directories
+	 * were no longer found (-> must have been removed) */
 	for (i = 0; i < svnum; i++) {
 		if (!sv[i].isgone)
 			continue;
 		if (sv[i].pid)
 			kill(sv[i].pid, SIGTERM);
-		sv[i] = sv[--svnum];
-		check = 1;
+		svnum--;
+		sv[i] = sv[svnum];
+		i--; /* so that we don't skip new sv[i] (bug was here!) */
 	}
-}
-
-static int setup_log(void)
-{
-	rploglen = strlen(rplog);
-	if (rploglen < 7) {
-		warnx("log must have at least seven characters");
-		return 0;
-	}
-	if (pipe(logpipe)) {
-		warnx("cannot create pipe for log");
-		return -1;
-	}
-	close_on_exec_on(logpipe[1]);
-	close_on_exec_on(logpipe[0]);
-	ndelay_on(logpipe[0]);
-	ndelay_on(logpipe[1]);
-	if (dup2(logpipe[1], 2) == -1) {
-		warnx("cannot set filedescriptor for log");
-		return -1;
-	}
-	pfd[0].fd = logpipe[0];
-	pfd[0].events = POLLIN;
-	stamplog = monotonic_sec();
-	return 1;
+	return need_rescan;
 }
 
 int runsvdir_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int runsvdir_main(int argc, char **argv)
+int runsvdir_main(int argc UNUSED_PARAM, char **argv)
 {
 	struct stat s;
 	dev_t last_dev = last_dev; /* for gcc */
@@ -213,35 +217,65 @@ int runsvdir_main(int argc, char **argv)
 	time_t last_mtime = 0;
 	int wstat;
 	int curdir;
-	int pid;
+	pid_t pid;
 	unsigned deadline;
 	unsigned now;
 	unsigned stampcheck;
-	char ch;
 	int i;
+	int need_rescan = 1;
+	char *opt_s_argv[3];
 
-	argv++;
-	if (!*argv)
-		bb_show_usage();
-	if (argv[0][0] == '-') {
-		switch (argv[0][1]) {
-		case 'P': set_pgrp = 1;
-		case '-': ++argv;
-		}
-		if (!*argv)
-			bb_show_usage();
-	}
+	INIT_G();
 
-	sig_catch(SIGTERM, s_term);
-	sig_catch(SIGHUP, s_hangup);
+	opt_complementary = "-1";
+	opt_s_argv[0] = NULL;
+	opt_s_argv[2] = NULL;
+	getopt32(argv, "Ps:", &opt_s_argv[0]);
+	argv += optind;
+
+	bb_signals(0
+		| (1 << SIGTERM)
+		| (1 << SIGHUP)
+		/* For busybox's init, SIGTERM == reboot,
+		 * SIGUSR1 == halt
+		 * SIGUSR2 == poweroff
+		 * so we need to intercept SIGUSRn too.
+		 * Note that we do not implement actual reboot
+		 * (killall(TERM) + umount, etc), we just pause
+		 * respawing and avoid exiting (-> making kernel oops).
+		 * The user is responsible for the rest. */
+		| (getpid() == 1 ? ((1 << SIGUSR1) | (1 << SIGUSR2)) : 0)
+		, record_signo);
 	svdir = *argv++;
-	if (argv && *argv) {
+
+#if ENABLE_FEATURE_RUNSVDIR_LOG
+	/* setup log */
+	if (*argv) {
 		rplog = *argv;
-		if (setup_log() != 1) {
-			rplog = 0;
-			warnx("log service disabled");
+		rploglen = strlen(rplog);
+		if (rploglen < 7) {
+			warnx("log must have at least seven characters");
+		} else if (piped_pair(logpipe)) {
+			warnx("can't create pipe for log");
+		} else {
+			close_on_exec_on(logpipe.rd);
+			close_on_exec_on(logpipe.wr);
+			ndelay_on(logpipe.rd);
+			ndelay_on(logpipe.wr);
+			if (dup2(logpipe.wr, 2) == -1) {
+				warnx("can't set filedescriptor for log");
+			} else {
+				pfd[0].fd = logpipe.rd;
+				pfd[0].events = POLLIN;
+				stamplog = monotonic_sec();
+				goto run;
+			}
 		}
+		rplog = NULL;
+		warnx("log service disabled");
 	}
+ run:
+#endif
 	curdir = open_read(".");
 	if (curdir == -1)
 		fatal2_cannot("open current directory", "");
@@ -252,15 +286,14 @@ int runsvdir_main(int argc, char **argv)
 	for (;;) {
 		/* collect children */
 		for (;;) {
-			pid = wait_nohang(&wstat);
+			pid = wait_any_nohang(&wstat);
 			if (pid <= 0)
 				break;
 			for (i = 0; i < svnum; i++) {
 				if (pid == sv[i].pid) {
-					/* runsv has gone */
+					/* runsv has died */
 					sv[i].pid = 0;
-					check = 1;
-					break;
+					need_rescan = 1;
 				}
 			}
 		}
@@ -271,7 +304,7 @@ int runsvdir_main(int argc, char **argv)
 			stampcheck = now + 1;
 
 			if (stat(svdir, &s) != -1) {
-				if (check || s.st_mtime != last_mtime
+				if (need_rescan || s.st_mtime != last_mtime
 				 || s.st_ino != last_ino || s.st_dev != last_dev
 				) {
 					/* svdir modified */
@@ -279,57 +312,82 @@ int runsvdir_main(int argc, char **argv)
 						last_mtime = s.st_mtime;
 						last_dev = s.st_dev;
 						last_ino = s.st_ino;
-						check = 0;
 						//if (now <= mtime)
 						//	sleep(1);
-						runsvdir();
+						need_rescan = do_rescan();
 						while (fchdir(curdir) == -1) {
 							warn2_cannot("change directory, pausing", "");
 							sleep(5);
 						}
-					} else
+					} else {
 						warn2_cannot("change directory to ", svdir);
+					}
 				}
-			} else
+			} else {
 				warn2_cannot("stat ", svdir);
+			}
 		}
 
+#if ENABLE_FEATURE_RUNSVDIR_LOG
 		if (rplog) {
 			if ((int)(now - stamplog) >= 0) {
-				write(logpipe[1], ".", 1);
+				write(logpipe.wr, ".", 1);
 				stamplog = now + 900;
 			}
 		}
-
 		pfd[0].revents = 0;
+#endif
+		deadline = (need_rescan ? 1 : 5);
 		sig_block(SIGCHLD);
-		deadline = (check ? 1 : 5);
+#if ENABLE_FEATURE_RUNSVDIR_LOG
 		if (rplog)
 			poll(pfd, 1, deadline*1000);
 		else
+#endif
 			sleep(deadline);
 		sig_unblock(SIGCHLD);
 
+#if ENABLE_FEATURE_RUNSVDIR_LOG
 		if (pfd[0].revents & POLLIN) {
-			while (read(logpipe[0], &ch, 1) > 0) {
-				if (ch) {
-					for (i = 6; i < rploglen; i++)
-						rplog[i-1] = rplog[i];
-					rplog[rploglen-1] = ch;
-				}
+			char ch;
+			while (read(logpipe.rd, &ch, 1) > 0) {
+				if (ch < ' ')
+					ch = ' ';
+				for (i = 6; i < rploglen; i++)
+					rplog[i-1] = rplog[i];
+				rplog[rploglen-1] = ch;
+			}
+		}
+#endif
+		if (!bb_got_signal)
+			continue;
+
+		/* -s SCRIPT: useful if we are init.
+		 * In this case typically script never returns,
+		 * it halts/powers off/reboots the system. */
+		if (opt_s_argv[0]) {
+			/* Single parameter: signal# */
+			opt_s_argv[1] = utoa(bb_got_signal);
+			pid = spawn(opt_s_argv);
+			if (pid > 0) {
+				/* Remembering to wait for _any_ children,
+				 * not just pid */
+				while (wait(NULL) != pid)
+					continue;
 			}
 		}
 
-		switch (exitsoon) {
-		case 1:
-			_exit(0);
-		case 2:
+		if (bb_got_signal == SIGHUP) {
 			for (i = 0; i < svnum; i++)
 				if (sv[i].pid)
 					kill(sv[i].pid, SIGTERM);
-			_exit(111);
 		}
-	}
-	/* not reached */
-	return 0;
+		/* SIGHUP or SIGTERM (or SIGUSRn if we are init) */
+		/* Exit unless we are init */
+		if (getpid() != 1)
+			return (SIGHUP == bb_got_signal) ? 111 : EXIT_SUCCESS;
+
+		/* init continues to monitor services forever */
+		bb_got_signal = 0;
+	} /* for (;;) */
 }

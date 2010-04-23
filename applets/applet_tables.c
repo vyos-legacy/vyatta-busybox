@@ -32,7 +32,7 @@ struct bb_applet {
 /* Define struct bb_applet applets[] */
 #include "../include/applets.h"
 
-enum { NUM_APPLETS = sizeof(applets)/sizeof(applets[0]) };
+enum { NUM_APPLETS = ARRAY_SIZE(applets) };
 
 static int offset[NUM_APPLETS];
 
@@ -47,6 +47,7 @@ int main(int argc, char **argv)
 {
 	int i;
 	int ofs;
+	unsigned MAX_APPLET_NAME_LEN = 1;
 
 	qsort(applets, NUM_APPLETS, sizeof(applets[0]), cmp_name);
 
@@ -69,21 +70,33 @@ int main(int argc, char **argv)
 
 	/* Keep in sync with include/busybox.h! */
 
-	puts("/* This is a generated file, don't edit */");
+	printf("/* This is a generated file, don't edit */\n\n");
 
-	puts("const char applet_names[] ALIGN1 = \"\" \n");
+	printf("#define NUM_APPLETS %u\n", NUM_APPLETS);
+	if (NUM_APPLETS == 1) {
+		printf("#define SINGLE_APPLET_STR \"%s\"\n", applets[0].name);
+		printf("#define SINGLE_APPLET_MAIN %s_main\n", applets[0].name);
+	}
+	printf("\n");
+
+	printf("#ifndef SKIP_definitions\n");
+	printf("const char applet_names[] ALIGN1 = \"\"\n");
 	for (i = 0; i < NUM_APPLETS; i++) {
 		printf("\"%s\" \"\\0\"\n", applets[i].name);
+		if (MAX_APPLET_NAME_LEN < strlen(applets[i].name))
+			MAX_APPLET_NAME_LEN = strlen(applets[i].name);
 	}
-	puts(";");
+	printf(";\n\n");
 
-	puts("int (*const applet_main[])(int argc, char **argv) = {");
+	printf("#ifndef SKIP_applet_main\n");
+	printf("int (*const applet_main[])(int argc, char **argv) = {\n");
 	for (i = 0; i < NUM_APPLETS; i++) {
 		printf("%s_main,\n", applets[i].main);
 	}
-	puts("};");
+	printf("};\n");
+	printf("#endif\n\n");
 
-	puts("const uint16_t applet_nameofs[] ALIGN2 = {");
+	printf("const uint16_t applet_nameofs[] ALIGN2 = {\n");
 	for (i = 0; i < NUM_APPLETS; i++) {
 		printf("0x%04x,\n",
 			offset[i]
@@ -92,14 +105,14 @@ int main(int argc, char **argv)
 			+ (applets[i].noexec << 13)
 #endif
 #if ENABLE_FEATURE_SUID
-			+ (applets[i].need_suid   << 14) /* 2 bits */
+			+ (applets[i].need_suid << 14) /* 2 bits */
 #endif
 		);
 	}
-	puts("};");
+	printf("};\n\n");
 
 #if ENABLE_FEATURE_INSTALLER
-	puts("const uint8_t applet_install_loc[] ALIGN1 = {");
+	printf("const uint8_t applet_install_loc[] ALIGN1 = {\n");
 	i = 0;
 	while (i < NUM_APPLETS) {
 		int v = applets[i].install_loc; /* 3 bits */
@@ -108,8 +121,11 @@ int main(int argc, char **argv)
 		printf("0x%02x,\n", v);
 		i++;
 	}
-	puts("};");
+	printf("};\n");
 #endif
+	printf("#endif /* SKIP_definitions */\n");
+	printf("\n");
+	printf("#define MAX_APPLET_NAME_LEN %u\n", MAX_APPLET_NAME_LEN);
 
 	return 0;
 }

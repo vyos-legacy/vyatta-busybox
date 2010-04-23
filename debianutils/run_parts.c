@@ -2,7 +2,7 @@
 /*
  * Mini run-parts implementation for busybox
  *
- * Copyright (C) 2007 Bernhard Fischer
+ * Copyright (C) 2007 Bernhard Reutner-Fischer
  *
  * Based on a older version that was in busybox which was 1k big..
  *   Copyright (C) 2001 by Emanuele Aina <emanuele.aina@tiscali.it>
@@ -23,14 +23,12 @@
  * report mode. As the original run-parts support only long options, I've
  * broken compatibility because the BusyBox policy doesn't allow them.
  * The supported options are:
- * -t			test. Print the name of the files to be executed, without
- *				execute them.
- * -a ARG		argument. Pass ARG as an argument the program executed. It can
- *				be repeated to pass multiple arguments.
- * -u MASK		umask. Set the umask of the program executed to MASK.
+ * -t           test. Print the name of the files to be executed, without
+ *              execute them.
+ * -a ARG       argument. Pass ARG as an argument the program executed. It can
+ *              be repeated to pass multiple arguments.
+ * -u MASK      umask. Set the umask of the program executed to MASK.
  */
-
-#include <getopt.h>
 
 #include "libbb.h"
 
@@ -38,23 +36,24 @@ struct globals {
 	char **names;
 	int    cur;
 	char  *cmd[1];
-};
+} FIX_ALIASING;
 #define G (*(struct globals*)&bb_common_bufsiz1)
 #define names (G.names)
 #define cur   (G.cur  )
 #define cmd   (G.cmd  )
 
-enum { NUM_CMD = (COMMON_BUFSIZE - sizeof(struct globals)) / sizeof(cmd[0]) };
+enum { NUM_CMD = (COMMON_BUFSIZE - sizeof(G)) / sizeof(cmd[0]) - 1 };
 
 enum {
-	RUN_PARTS_OPT_a = (1 << 0),
-	RUN_PARTS_OPT_u = (1 << 1),
-	RUN_PARTS_OPT_t = (1 << 2),
-	RUN_PARTS_OPT_l = (1 << 3) * ENABLE_FEATURE_RUN_PARTS_FANCY,
+	OPT_r = (1 << 0),
+	OPT_a = (1 << 1),
+	OPT_u = (1 << 2),
+	OPT_t = (1 << 3),
+	OPT_l = (1 << 4) * ENABLE_FEATURE_RUN_PARTS_FANCY,
 };
 
 #if ENABLE_FEATURE_RUN_PARTS_FANCY
-#define list_mode (option_mask32 & RUN_PARTS_OPT_l)
+#define list_mode (option_mask32 & OPT_l)
 #else
 #define list_mode 0
 #endif
@@ -74,10 +73,11 @@ static bool invalid_name(const char *c)
 
 static int bb_alphasort(const void *p1, const void *p2)
 {
-	return strcmp(*(char **) p1, *(char **) p2);
+	int r = strcmp(*(char **) p1, *(char **) p2);
+	return (option_mask32 & OPT_r) ? -r : r;
 }
 
-static int act(const char *file, struct stat *statbuf, void *args, int depth)
+static int FAST_FUNC act(const char *file, struct stat *statbuf, void *args UNUSED_PARAM, int depth)
 {
 	if (depth == 1)
 		return TRUE;
@@ -90,9 +90,9 @@ static int act(const char *file, struct stat *statbuf, void *args, int depth)
 		return SKIP;
 	}
 
-	names = xrealloc(names, (cur + 2) * sizeof(names[0]));
+	names = xrealloc_vector(names, 4, cur);
 	names[cur++] = xstrdup(file);
-	names[cur] = NULL;
+	/*names[cur] = NULL; - xrealloc_vector did it */
 
 	return TRUE;
 }
@@ -104,14 +104,14 @@ static const char runparts_longopts[] ALIGN1 =
 	"test\0"    No_argument       "t"
 #if ENABLE_FEATURE_RUN_PARTS_FANCY
 	"list\0"    No_argument       "l"
-//TODO: "reverse\0" No_argument       "r"
+	"reverse\0" No_argument       "r"
 //TODO: "verbose\0" No_argument       "v"
 #endif
 	;
 #endif
 
 int run_parts_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int run_parts_main(int argc, char **argv)
+int run_parts_main(int argc UNUSED_PARAM, char **argv)
 {
 	const char *umask_p = "22";
 	llist_t *arg_list = NULL;
@@ -122,16 +122,15 @@ int run_parts_main(int argc, char **argv)
 	applet_long_options = runparts_longopts;
 #endif
 	/* We require exactly one argument: the directory name */
+	/* We require exactly one argument: the directory name */
 	opt_complementary = "=1:a::";
-	getopt32(argv, "a:u:t"USE_FEATURE_RUN_PARTS_FANCY("l"), &arg_list, &umask_p);
+	getopt32(argv, "ra:u:t"IF_FEATURE_RUN_PARTS_FANCY("l"), &arg_list, &umask_p);
 
 	umask(xstrtou_range(umask_p, 8, 0, 07777));
 
 	n = 1;
 	while (arg_list && n < NUM_CMD) {
-		cmd[n] = arg_list->data;
-		arg_list = arg_list->link;
-		n++;
+		cmd[n++] = llist_pop(&arg_list);
 	}
 	/* cmd[n] = NULL; - is already zeroed out */
 
@@ -155,19 +154,19 @@ int run_parts_main(int argc, char **argv)
 		char *name = *names++;
 		if (!name)
 			break;
-		if (option_mask32 & (RUN_PARTS_OPT_t | RUN_PARTS_OPT_l)) {
+		if (option_mask32 & (OPT_t | OPT_l)) {
 			puts(name);
 			continue;
 		}
 		cmd[0] = name;
-		ret = wait4pid(spawn(cmd));
+		ret = spawn_and_wait(cmd);
 		if (ret == 0)
 			continue;
 		n = 1;
 		if (ret < 0)
-			bb_perror_msg("failed to exec %s", name);
+			bb_perror_msg("can't execute '%s'", name);
 		else /* ret > 0 */
-			bb_error_msg("%s exited with return code %d", name, ret);
+			bb_error_msg("%s exited with code %d", name, ret & 0xff);
 	}
 
 	return n;

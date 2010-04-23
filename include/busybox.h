@@ -4,10 +4,12 @@
  *
  * Licensed under the GPL v2 or later, see the file LICENSE in this tarball.
  */
-#ifndef	_BB_INTERNAL_H_
-#define	_BB_INTERNAL_H_    1
+#ifndef BUSYBOX_H
+#define BUSYBOX_H 1
 
 #include "libbb.h"
+
+PUSH_AND_SET_FUNCTION_VISIBILITY_TO_HIDDEN
 
 /* order matters: used as index into "install_dir[]" in appletlib.c */
 typedef enum bb_install_loc_t {
@@ -19,9 +21,9 @@ typedef enum bb_install_loc_t {
 } bb_install_loc_t;
 
 typedef enum bb_suid_t {
-	_BB_SUID_NEVER = 0,
+	_BB_SUID_DROP = 0,
 	_BB_SUID_MAYBE,
-	_BB_SUID_ALWAYS
+	_BB_SUID_REQUIRE
 } bb_suid_t;
 
 
@@ -59,14 +61,14 @@ extern const uint8_t applet_install_loc[];
 /* Length of these names has effect on size of libbusybox
  * and "individual" binaries. Keep them short.
  */
-void lbb_prepare(const char *applet, char **argv) MAIN_EXTERNALLY_VISIBLE;
 #if ENABLE_BUILD_LIBBUSYBOX
 #if ENABLE_FEATURE_SHARED_BUSYBOX
-int lbb_main(int argc, char **argv) EXTERNALLY_VISIBLE;
+int lbb_main(char **argv) EXTERNALLY_VISIBLE;
 #else
-int lbb_main(int argc, char **argv);
+int lbb_main(char **argv);
 #endif
 #endif
 
+POP_SAVED_FUNCTION_VISIBILITY
 
-#endif	/* _BB_INTERNAL_H_ */
+#endif

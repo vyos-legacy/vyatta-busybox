@@ -17,385 +17,523 @@
  * the first porting of oao' scdns to busybox also.
  */
 
-#include <syslog.h>
 #include "libbb.h"
+#include <syslog.h>
 
 //#define DEBUG 1
 #define DEBUG 0
 
 enum {
-	MAX_HOST_LEN = 16,      // longest host name allowed is 15
-	IP_STRING_LEN = 18,     // .xxx.xxx.xxx.xxx\0
+	/* can tweak this */
+	DEFAULT_TTL = 120,
 
-//must be strlen('.in-addr.arpa') larger than IP_STRING_LEN
-	MAX_NAME_LEN = (IP_STRING_LEN + 13),
-
-/* Cannot get bigger packets than 512 per RFC1035
-   In practice this can be set considerably smaller:
-   Length of response packet is  header (12B) + 2*type(4B) + 2*class(4B) +
-   ttl(4B) + rlen(2B) + r (MAX_NAME_LEN =21B) +
-   2*querystring (2 MAX_NAME_LEN= 42B), all together 90 Byte
-*/
-	MAX_PACK_LEN = 512 + 1,
-
-	DEFAULT_TTL = 30,       // increase this when not testing?
-
+	/* cannot get bigger packets than 512 per RFC1035. */
+	MAX_PACK_LEN = 512,
+	IP_STRING_LEN = sizeof(".xxx.xxx.xxx.xxx"),
+	MAX_NAME_LEN = IP_STRING_LEN - 1 + sizeof(".in-addr.arpa"),
 	REQ_A = 1,
-	REQ_PTR = 12
+	REQ_PTR = 12,
 };
 
-struct dns_repl {		// resource record, add 0 or 1 to accepted dns_msg in resp
-	uint16_t rlen;
-	uint8_t *r;		// resource
-	uint16_t flags;
-};
-
-struct dns_head {		// the message from client and first part of response mag
+/* the message from client and first part of response msg */
+struct dns_head {
 	uint16_t id;
 	uint16_t flags;
-	uint16_t nquer;		// accepts 0
-	uint16_t nansw;		// 1 in response
-	uint16_t nauth;		// 0
-	uint16_t nadd;		// 0
+	uint16_t nquer;
+	uint16_t nansw;
+	uint16_t nauth;
+	uint16_t nadd;
 };
-struct dns_prop {
+struct type_and_class {
 	uint16_t type;
 	uint16_t class;
 };
-struct dns_entry {		// element of known name, ip address and reversed ip address
+/* element of known name, ip address and reversed ip address */
+struct dns_entry {
 	struct dns_entry *next;
-	char ip[IP_STRING_LEN];		// dotted decimal IP
-	char rip[IP_STRING_LEN];	// length decimal reversed IP
-	char name[MAX_HOST_LEN];
+	uint32_t ip;
+	char rip[IP_STRING_LEN]; /* length decimal reversed IP */
+	char name[1];
 };
 
-static struct dns_entry *dnsentry;
-static uint32_t ttl = DEFAULT_TTL;
+#define OPT_verbose (option_mask32 & 1)
+#define OPT_silent  (option_mask32 & 2)
 
-static const char *fileconf = "/etc/dnsd.conf";
-
-// Must match getopt32 call
-#define OPT_daemon  (option_mask32 & 0x10)
-#define OPT_verbose (option_mask32 & 0x20)
-
-
-/*
- * Convert host name from C-string to dns length/string.
- */
-static void convname(char *a, uint8_t *q)
-{
-	int i = (q[0] == '.') ? 0 : 1;
-	for (; i < MAX_HOST_LEN-1 && *q; i++, q++)
-		a[i] = tolower(*q);
-	a[0] = i - 1;
-	a[i] = 0;
-}
 
 /*
  * Insert length of substrings instead of dots
  */
-static void undot(uint8_t * rip)
+static void undot(char *rip)
 {
-	int i = 0, s = 0;
+	int i = 0;
+	int s = 0;
+
 	while (rip[i])
 		i++;
 	for (--i; i >= 0; i--) {
 		if (rip[i] == '.') {
 			rip[i] = s;
 			s = 0;
-		} else s++;
-	}
-}
-
-/*
- * Read one line of hostname/IP from file
- * Returns 0 for each valid entry read, -1 at EOF
- * Assumes all host names are lower case only
- * Hostnames with more than one label are not handled correctly.
- * Presently the dot is copied into name without
- * converting to a length/string substring for that label.
- */
-static int getfileentry(FILE * fp, struct dns_entry *s)
-{
-	unsigned int a,b,c,d;
-	char *line, *r, *name;
-
- restart:
-	line = r = xmalloc_fgets(fp);
-	if (!r)
-		return -1;
-	while (*r == ' ' || *r == '\t') {
-		r++;
-		if (!*r || *r == '#' || *r == '\n') {
-			free(line);
-			goto restart; /* skipping empty/blank and commented lines  */
+		} else {
+			s++;
 		}
 	}
-	name = r;
-	while (*r != ' ' && *r != '\t')
-		r++;
-	*r++ = '\0';
-	if (sscanf(r, ".%u.%u.%u.%u"+1, &a, &b, &c, &d) != 4) {
-		free(line);
-		goto restart; /* skipping wrong lines */
-	}
-
-	sprintf(s->ip, ".%u.%u.%u.%u"+1, a, b, c, d);
-	sprintf(s->rip, ".%u.%u.%u.%u", d, c, b, a);
-	undot((uint8_t*)s->rip);
-	convname(s->name, (uint8_t*)name);
-
-	if (OPT_verbose)
-		fprintf(stderr, "\tname:%s, ip:%s\n", &(s->name[1]),s->ip);
-
-	free(line);
-	return 0;
 }
 
 /*
  * Read hostname/IP records from file
  */
-static void dnsentryinit(void)
+static struct dns_entry *parse_conf_file(const char *fileconf)
 {
-	FILE *fp;
-	struct dns_entry *m, *prev;
+	char *token[2];
+	parser_t *parser;
+	struct dns_entry *m, *conf_data;
+	struct dns_entry **nextp;
 
-	prev = dnsentry = NULL;
-	fp = xfopen(fileconf, "r");
+	conf_data = NULL;
+	nextp = &conf_data;
 
-	while (1) {
-		m = xzalloc(sizeof(*m));
+	parser = config_open(fileconf);
+	while (config_read(parser, token, 2, 2, "# \t", PARSE_NORMAL)) {
+		struct in_addr ip;
+		uint32_t v32;
+
+		if (inet_aton(token[1], &ip) == 0) {
+			bb_error_msg("error at line %u, skipping", parser->lineno);
+			continue;
+		}
+
+		if (OPT_verbose)
+			bb_error_msg("name:%s, ip:%s", token[0], token[1]);
+
+		/* sizeof(*m) includes 1 byte for m->name[0] */
+		m = xzalloc(sizeof(*m) + strlen(token[0]) + 1);
 		/*m->next = NULL;*/
-		if (getfileentry(fp, m))
-			break;
+		*nextp = m;
+		nextp = &m->next;
 
-		if (prev == NULL)
-			dnsentry = m;
-		else
-			prev->next = m;
-		prev = m;
+		m->name[0] = '.';
+		strcpy(m->name + 1, token[0]);
+		undot(m->name);
+		m->ip = ip.s_addr; /* in network order */
+		v32 = ntohl(m->ip);
+		/* inverted order */
+		sprintf(m->rip, ".%u.%u.%u.%u",
+			(uint8_t)(v32),
+			(uint8_t)(v32 >> 8),
+			(uint8_t)(v32 >> 16),
+			(v32 >> 24)
+		);
+		undot(m->rip);
 	}
-	fclose(fp);
+	config_close(parser);
+	return conf_data;
 }
 
 /*
- * Look query up in dns records and return answer if found
- * qs is the query string, first byte the string length
+ * Look query up in dns records and return answer if found.
  */
-static int table_lookup(uint16_t type, uint8_t * as, uint8_t * qs)
+static char *table_lookup(struct dns_entry *d,
+		uint16_t type,
+		char* query_string)
 {
-	int i;
-	struct dns_entry *d = dnsentry;
-
-	do {
+	while (d) {
+		unsigned len = d->name[0];
+		/* d->name[len] is the last (non NUL) char */
 #if DEBUG
-		char *p,*q;
-		q = (char *)&(qs[1]);
-		p = &(d->name[1]);
-		fprintf(stderr, "\n%s: %d/%d p:%s q:%s %d",
-			__FUNCTION__, (int)strlen(p), (int)(d->name[0]),
-			p, q, (int)strlen(q));
+		char *p, *q;
+		q = query_string + 1;
+		p = d->name + 1;
+		fprintf(stderr, "%d/%d p:%s q:%s %d\n",
+			(int)strlen(p), len,
+			p, q, (int)strlen(q)
+		);
 #endif
-		if (type == REQ_A) { /* search by host name */
-			for (i = 1; i <= (int)(d->name[0]); i++)
-				if (tolower(qs[i]) != d->name[i])
-					break;
-			if (i > (int)(d->name[0])) {
-				strcpy((char *)as, d->ip);
+		if (type == htons(REQ_A)) {
+			/* search by host name */
+			if (len != 1 || d->name[1] != '*') {
+/* we are lax, hope no name component is ever >64 so that length
+ * (which will be represented as 'A','B'...) matches a lowercase letter.
+ * Actually, I think false matches are hard to construct.
+ * Example.
+ * [31] len is represented as '1', [65] as 'A', [65+32] as 'a'.
+ * [65]   <65 same chars>[31]<31 same chars>NUL
+ * [65+32]<65 same chars>1   <31 same chars>NUL
+ * This example seems to be the minimal case when false match occurs.
+ */
+				if (strcasecmp(d->name, query_string) != 0)
+					goto next;
+			}
+			return (char *)&d->ip;
 #if DEBUG
-				fprintf(stderr, " OK as:%s\n", as);
+			fprintf(stderr, "Found IP:%x\n", (int)d->ip);
 #endif
-				return 0;
-			}
-		} else if (type == REQ_PTR) { /* search by IP-address */
-			if (!strncmp((char*)&d->rip[1], (char*)&qs[1], strlen(d->rip)-1)) {
-				strcpy((char *)as, d->name);
-				return 0;
-			}
+			return 0;
 		}
+		/* search by IP-address */
+		if ((len != 1 || d->name[1] != '*')
+		/* we assume (do not check) that query_string
+		 * ends in ".in-addr.arpa" */
+		 && strncmp(d->rip, query_string, strlen(d->rip)) == 0
+		) {
+#if DEBUG
+			fprintf(stderr, "Found name:%s\n", d->name);
+#endif
+			return d->name;
+		}
+ next:
 		d = d->next;
-	} while (d);
-	return -1;
-}
+	}
 
+	return NULL;
+}
 
 /*
  * Decode message and generate answer
  */
-static int process_packet(uint8_t * buf)
+/* RFC 1035
+...
+Whenever an octet represents a numeric quantity, the left most bit
+in the diagram is the high order or most significant bit.
+That is, the bit labeled 0 is the most significant bit.
+...
+
+4.1.1. Header section format
+      0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                      ID                       |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |QR|   OPCODE  |AA|TC|RD|RA| 0  0  0|   RCODE   |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                    QDCOUNT                    |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                    ANCOUNT                    |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                    NSCOUNT                    |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                    ARCOUNT                    |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ID      16 bit random identifier assigned by querying peer.
+        Used to match query/response.
+QR      message is a query (0), or a response (1).
+OPCODE  0   standard query (QUERY)
+        1   inverse query (IQUERY)
+        2   server status request (STATUS)
+AA      Authoritative Answer - this bit is valid in responses.
+        Responding name server is an authority for the domain name
+        in question section. Answer section may have multiple owner names
+        because of aliases.  The AA bit corresponds to the name which matches
+        the query name, or the first owner name in the answer section.
+TC      TrunCation - this message was truncated.
+RD      Recursion Desired - this bit may be set in a query and
+        is copied into the response.  If RD is set, it directs
+        the name server to pursue the query recursively.
+        Recursive query support is optional.
+RA      Recursion Available - this be is set or cleared in a
+        response, and denotes whether recursive query support is
+        available in the name server.
+RCODE   Response code.
+        0   No error condition
+        1   Format error
+        2   Server failure - server was unable to process the query
+            due to a problem with the name server.
+        3   Name Error - meaningful only for responses from
+            an authoritative name server. The referenced domain name
+            does not exist.
+        4   Not Implemented.
+        5   Refused.
+QDCOUNT number of entries in the question section.
+ANCOUNT number of records in the answer section.
+NSCOUNT number of records in the authority records section.
+ARCOUNT number of records in the additional records section.
+
+4.1.2. Question section format
+
+The section contains QDCOUNT (usually 1) entries, each of this format:
+      0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /                     QNAME                     /
+    /                                               /
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                     QTYPE                     |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                     QCLASS                    |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+QNAME   a domain name represented as a sequence of labels, where
+        each label consists of a length octet followed by that
+        number of octets. The domain name terminates with the
+        zero length octet for the null label of the root. Note
+        that this field may be an odd number of octets; no
+        padding is used.
+QTYPE   a two octet type of the query.
+          1 a host address [REQ_A const]
+          2 an authoritative name server
+          3 a mail destination (Obsolete - use MX)
+          4 a mail forwarder (Obsolete - use MX)
+          5 the canonical name for an alias
+          6 marks the start of a zone of authority
+          7 a mailbox domain name (EXPERIMENTAL)
+          8 a mail group member (EXPERIMENTAL)
+          9 a mail rename domain name (EXPERIMENTAL)
+         10 a null RR (EXPERIMENTAL)
+         11 a well known service description
+         12 a domain name pointer [REQ_PTR const]
+         13 host information
+         14 mailbox or mail list information
+         15 mail exchange
+         16 text strings
+       0x1c IPv6?
+        252 a request for a transfer of an entire zone
+        253 a request for mailbox-related records (MB, MG or MR)
+        254 a request for mail agent RRs (Obsolete - see MX)
+        255 a request for all records
+QCLASS  a two octet code that specifies the class of the query.
+          1 the Internet
+        (others are historic only)
+        255 any class
+
+4.1.3. Resource Record format
+
+The answer, authority, and additional sections all share the same format:
+a variable number of resource records, where the number of records
+is specified in the corresponding count field in the header.
+Each resource record has this format:
+      0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /                                               /
+    /                      NAME                     /
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                      TYPE                     |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                     CLASS                     |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                      TTL                      |
+    |                                               |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    |                   RDLENGTH                    |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--|
+    /                     RDATA                     /
+    /                                               /
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+NAME    a domain name to which this resource record pertains.
+TYPE    two octets containing one of the RR type codes.  This
+        field specifies the meaning of the data in the RDATA field.
+CLASS   two octets which specify the class of the data in the RDATA field.
+TTL     a 32 bit unsigned integer that specifies the time interval
+        (in seconds) that the record may be cached.
+RDLENGTH a 16 bit integer, length in octets of the RDATA field.
+RDATA   a variable length string of octets that describes the resource.
+        The format of this information varies according to the TYPE
+        and CLASS of the resource record.
+        If the TYPE is A and the CLASS is IN, it's a 4 octet IP address.
+
+4.1.4. Message compression
+
+In order to reduce the size of messages, domain names coan be compressed.
+An entire domain name or a list of labels at the end of a domain name
+is replaced with a pointer to a prior occurance of the same name.
+
+The pointer takes the form of a two octet sequence:
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    | 1  1|                OFFSET                   |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+The first two bits are ones.  This allows a pointer to be distinguished
+from a label, since the label must begin with two zero bits because
+labels are restricted to 63 octets or less.  The OFFSET field specifies
+an offset from the start of the message (i.e., the first octet
+of the ID field in the domain header).
+A zero offset specifies the first byte of the ID field, etc.
+Domain name in a message can be represented as either:
+   - a sequence of labels ending in a zero octet
+   - a pointer
+   - a sequence of labels ending with a pointer
+ */
+static int process_packet(struct dns_entry *conf_data,
+		uint32_t conf_ttl,
+		uint8_t *buf)
 {
 	struct dns_head *head;
-	struct dns_prop *qprop;
-	struct dns_repl outr;
-	void *next, *from, *answb;
-
-	uint8_t answstr[MAX_NAME_LEN + 1];
-	int lookup_result, type, len, packet_len;
-	uint16_t flags;
-
-	answstr[0] = '\0';
+	struct type_and_class *unaligned_type_class;
+	const char *err_msg;
+	char *query_string;
+	char *answstr;
+	uint8_t *answb;
+	uint16_t outr_rlen;
+	uint16_t outr_flags;
+	uint16_t type;
+	uint16_t class;
+	int query_len;
 
 	head = (struct dns_head *)buf;
 	if (head->nquer == 0) {
-		bb_error_msg("no queries");
-		return -1;
+		bb_error_msg("packet has 0 queries, ignored");
+		return 0; /* don't reply */
 	}
-
-	if (head->flags & 0x8000) {
-		bb_error_msg("ignoring response packet");
-		return -1;
+	if (head->flags & htons(0x8000)) { /* QR bit */
+		bb_error_msg("response packet, ignored");
+		return 0; /* don't reply */
 	}
+	/* QR = 1 "response", RCODE = 4 "Not Implemented" */
+	outr_flags = htons(0x8000 | 4);
+	err_msg = NULL;
 
-	from = (void *)&head[1];	//  start of query string
-	next = answb = from + strlen((char *)from) + 1 + sizeof(struct dns_prop);   // where to append answer block
+	/* start of query string */
+	query_string = (void *)(head + 1);
+	/* caller guarantees strlen is <= MAX_PACK_LEN */
+	query_len = strlen(query_string) + 1;
+	/* may be unaligned! */
+	unaligned_type_class = (void *)(query_string + query_len);
+	query_len += sizeof(unaligned_type_class);
+	/* where to append answer block */
+	answb = (void *)(unaligned_type_class + 1);
 
-	outr.rlen = 0;			// may change later
-	outr.r = NULL;
-	outr.flags = 0;
-
-	qprop = (struct dns_prop *)(answb - 4);
-	type = ntohs(qprop->type);
-
-	// only let REQ_A and REQ_PTR pass
-	if (!(type == REQ_A || type == REQ_PTR)) {
-		goto empty_packet;	/* we can't handle the query type */
-	}
-
-	if (ntohs(qprop->class) != 1 /* class INET */ ) {
-		outr.flags = 4; /* not supported */
+	/* OPCODE != 0 "standard query"? */
+	if ((head->flags & htons(0x7800)) != 0) {
+		err_msg = "opcode != 0";
 		goto empty_packet;
 	}
-	/* we only support standard queries */
-
-	if ((ntohs(head->flags) & 0x7800) != 0)
-		goto empty_packet;
-
-	// We have a standard query
-	bb_info_msg("%s", (char *)from);
-	lookup_result = table_lookup(type, answstr, (uint8_t*)from);
-	if (lookup_result != 0) {
-		outr.flags = 3 | 0x0400;	//name do not exist and auth
+	move_from_unaligned16(class, &unaligned_type_class->class);
+	if (class != htons(1)) { /* not class INET? */
+		err_msg = "class != 1";
 		goto empty_packet;
 	}
-	if (type == REQ_A) {    // return an address
-		struct in_addr a;
-		if (!inet_aton((char*)answstr, &a)) {//dotted dec to long conv
-			outr.flags = 1; /* Frmt err */
-			goto empty_packet;
-		}
-		memcpy(answstr, &a.s_addr, 4);	// save before a disappears
-		outr.rlen = 4;			// uint32_t IP
-	} else
-		outr.rlen = strlen((char *)answstr) + 1;	// a host name
-	outr.r = answstr;			// 32 bit ip or a host name
-	outr.flags |= 0x0400;			/* authority-bit */
-	// we have an answer
+	move_from_unaligned16(type, &unaligned_type_class->type);
+	if (type != htons(REQ_A) && type != htons(REQ_PTR)) {
+		/* we can't handle this query type */
+//TODO: happens all the time with REQ_AAAA (0x1c) requests - implement those?
+		err_msg = "type is !REQ_A and !REQ_PTR";
+		goto empty_packet;
+	}
+
+	/* look up the name */
+	answstr = table_lookup(conf_data, type, query_string);
+#if DEBUG
+	/* Shows lengths instead of dots, unusable for !DEBUG */
+	bb_error_msg("'%s'->'%s'", query_string, answstr);
+#endif
+	outr_rlen = 4;
+	if (answstr && type == htons(REQ_PTR)) {
+		/* returning a host name */
+		outr_rlen = strlen(answstr) + 1;
+	}
+	if (!answstr
+	 || (unsigned)(answb - buf) + query_len + 4 + 2 + outr_rlen > MAX_PACK_LEN
+	) {
+		/* QR = 1 "response"
+		 * AA = 1 "Authoritative Answer"
+		 * RCODE = 3 "Name Error" */
+		err_msg = "name is not found";
+		outr_flags = htons(0x8000 | 0x0400 | 3);
+		goto empty_packet;
+	}
+
+	/* Append answer Resource Record */
+	memcpy(answb, query_string, query_len); /* name, type, class */
+	answb += query_len;
+	move_to_unaligned32((uint32_t *)answb, htonl(conf_ttl));
+	answb += 4;
+	move_to_unaligned16((uint16_t *)answb, htons(outr_rlen));
+	answb += 2;
+	memcpy(answb, answstr, outr_rlen);
+	answb += outr_rlen;
+
+	/* QR = 1 "response",
+	 * AA = 1 "Authoritative Answer",
+	 * TODO: need to set RA bit 0x80? One user says nslookup complains
+	 * "Got recursion not available from SERVER, trying next server"
+	 * "** server can't find HOSTNAME"
+	 * RCODE = 0 "success"
+	 */
+	if (OPT_verbose)
+		bb_error_msg("returning positive reply");
+	outr_flags = htons(0x8000 | 0x0400 | 0);
+	/* we have one answer */
 	head->nansw = htons(1);
 
-	// copy query block to answer block
-	len = answb - from;
-	memcpy(answb, from, len);
-	next += len;
-
-	// and append answer rr
-	*(uint32_t *) next = htonl(ttl);
-	next += 4;
-	*(uint16_t *) next = htons(outr.rlen);
-	next += 2;
-	memcpy(next, (void *)answstr, outr.rlen);
-	next += outr.rlen;
-
  empty_packet:
+	if ((outr_flags & htons(0xf)) != 0) { /* not a positive response */
+		if (OPT_verbose) {
+			bb_error_msg("%s, %s",
+				err_msg,
+				OPT_silent ? "dropping query" : "sending error reply"
+			);
+		}
+		if (OPT_silent)
+			return 0;
+	}
+	head->flags |= outr_flags;
+	head->nauth = head->nadd = 0;
+	head->nquer = htons(1); // why???
 
-	flags = ntohs(head->flags);
-	// clear rcode and RA, set responsebit and our new flags
-	flags |= (outr.flags & 0xff80) | 0x8000;
-	head->flags = htons(flags);
-	head->nauth = head->nadd = htons(0);
-	head->nquer = htons(1);
-
-	packet_len = (uint8_t *)next - buf;
-	return packet_len;
-}
-
-/*
- * Exit on signal
- */
-static void interrupt(int x)
-{
-	/* unlink("/var/run/dnsd.lock"); */
-	bb_error_msg("interrupt, exiting\n");
-	exit(2);
+	return answb - buf;
 }
 
 int dnsd_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int dnsd_main(int argc, char **argv)
+int dnsd_main(int argc UNUSED_PARAM, char **argv)
 {
 	const char *listen_interface = "0.0.0.0";
+	const char *fileconf = "/etc/dnsd.conf";
+	struct dns_entry *conf_data;
+	uint32_t conf_ttl = DEFAULT_TTL;
 	char *sttl, *sport;
-	len_and_sockaddr *lsa;
-	int udps;
+	len_and_sockaddr *lsa, *from, *to;
+	unsigned lsa_size;
+	int udps, opts;
 	uint16_t port = 53;
-	uint8_t buf[MAX_PACK_LEN];
+	/* Ensure buf is 32bit aligned (we need 16bit, but 32bit can't hurt) */
+	uint8_t buf[MAX_PACK_LEN + 1] ALIGN4;
 
-	getopt32(argv, "i:c:t:p:dv", &listen_interface, &fileconf, &sttl, &sport);
-	//if (option_mask32 & 0x1) // -i
-	//if (option_mask32 & 0x2) // -c
-	if (option_mask32 & 0x4) // -t
-		ttl = xatou_range(sttl, 1, 0xffffffff);
-	if (option_mask32 & 0x8) // -p
+	opts = getopt32(argv, "vsi:c:t:p:d", &listen_interface, &fileconf, &sttl, &sport);
+	//if (opts & (1 << 0)) // -v
+	//if (opts & (1 << 1)) // -s
+	//if (opts & (1 << 2)) // -i
+	//if (opts & (1 << 3)) // -c
+	if (opts & (1 << 4)) // -t
+		conf_ttl = xatou_range(sttl, 1, 0xffffffff);
+	if (opts & (1 << 5)) // -p
 		port = xatou_range(sport, 1, 0xffff);
-
-	if (OPT_verbose) {
-		bb_info_msg("listen_interface: %s", listen_interface);
-		bb_info_msg("ttl: %d, port: %d", ttl, port);
-		bb_info_msg("fileconf: %s", fileconf);
-	}
-
-	if (OPT_daemon) {
+	if (opts & (1 << 6)) { // -d
 		bb_daemonize_or_rexec(DAEMON_CLOSE_EXTRA_FDS, argv);
 		openlog(applet_name, LOG_PID, LOG_DAEMON);
 		logmode = LOGMODE_SYSLOG;
 	}
 
-	dnsentryinit();
-
-	signal(SIGINT, interrupt);
-	/* why? signal(SIGPIPE, SIG_IGN); */
-	signal(SIGHUP, SIG_IGN);
-#ifdef SIGTSTP
-	signal(SIGTSTP, SIG_IGN);
-#endif
-#ifdef SIGURG
-	signal(SIGURG, SIG_IGN);
-#endif
+	conf_data = parse_conf_file(fileconf);
 
 	lsa = xdotted2sockaddr(listen_interface, port);
-	udps = xsocket(lsa->sa.sa_family, SOCK_DGRAM, 0);
-	xbind(udps, &lsa->sa, lsa->len);
-	/* xlisten(udps, 50); - ?!! DGRAM sockets are never listened on I think? */
-	bb_info_msg("Accepting UDP packets on %s",
-			xmalloc_sockaddr2dotted(&lsa->sa));
+	udps = xsocket(lsa->u.sa.sa_family, SOCK_DGRAM, 0);
+	xbind(udps, &lsa->u.sa, lsa->len);
+	socket_want_pktinfo(udps); /* needed for recv_from_to to work */
+	lsa_size = LSA_LEN_SIZE + lsa->len;
+	from = xzalloc(lsa_size);
+	to = xzalloc(lsa_size);
+
+	{
+		char *p = xmalloc_sockaddr2dotted(&lsa->u.sa);
+		bb_error_msg("accepting UDP packets on %s", p);
+		free(p);
+	}
 
 	while (1) {
 		int r;
-		socklen_t fromlen = lsa->len;
-// FIXME: need to get *DEST* address (to which of our addresses
-// this query was directed), and reply from the same address.
-// Or else we can exhibit usual UDP ugliness:
-// [ip1.multihomed.ip2] <=  query to ip1  <= peer
-// [ip1.multihomed.ip2] => reply from ip2 => peer (confused)
-		r = recvfrom(udps, buf, sizeof(buf), 0, &lsa->sa, &fromlen);
-		if (OPT_verbose)
-			bb_info_msg("Got UDP packet");
-		if (r < 12 || r > 512) {
-			bb_error_msg("invalid packet size");
+		/* Try to get *DEST* address (to which of our addresses
+		 * this query was directed), and reply from the same address.
+		 * Or else we can exhibit usual UDP ugliness:
+		 * [ip1.multihomed.ip2] <=  query to ip1  <= peer
+		 * [ip1.multihomed.ip2] => reply from ip2 => peer (confused) */
+		memcpy(to, lsa, lsa_size);
+		r = recv_from_to(udps, buf, MAX_PACK_LEN + 1, 0, &from->u.sa, &to->u.sa, lsa->len);
+		if (r < 12 || r > MAX_PACK_LEN) {
+			bb_error_msg("packet size %d, ignored", r);
 			continue;
 		}
-		r = process_packet(buf);
+		if (OPT_verbose)
+			bb_error_msg("got UDP packet");
+		buf[r] = '\0'; /* paranoia */
+		r = process_packet(conf_data, conf_ttl, buf);
 		if (r <= 0)
 			continue;
-		sendto(udps, buf, r, 0, &lsa->sa, fromlen);
+		send_to_from(udps, buf, r, 0, &from->u.sa, &to->u.sa, lsa->len);
 	}
 	return 0;
 }

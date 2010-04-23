@@ -1,7 +1,7 @@
 #!/usr/bin/awk -f
 # AWK script to check for missing help entries for config options
 #
-# Copyright (C) 2006 Bernhard Fischer
+# Copyright (C) 2006 Bernhard Reutner-Fischer
 #
 # This file is distributed under the terms and conditions of the
 # MIT/X public licenses. See http://opensource.org/licenses/mit-license.html
@@ -32,7 +32,7 @@ BEGIN {
 }
 END {
 	for (i = 0; i <= pos; i++) {
-# 	printf("%s: help for #%i '%s' == %i\n", file[i], i, conf[i], help[i]);
+#	printf("%s: help for #%i '%s' == %i\n", file[i], i, conf[i], help[i]);
 		if (help[i] == 0) {
 			printf("%s: No helptext for '%s'\n", file[i], conf[i]);
 		}

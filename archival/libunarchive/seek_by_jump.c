@@ -6,14 +6,14 @@
 #include "libbb.h"
 #include "unarchive.h"
 
-void seek_by_jump(const archive_handle_t *archive_handle, const unsigned int amount)
+void FAST_FUNC seek_by_jump(int fd, off_t amount)
 {
-	if (lseek(archive_handle->src_fd, (off_t) amount, SEEK_CUR) == (off_t) -1) {
-#if ENABLE_FEATURE_UNARCHIVE_TAPE
-		if (errno == ESPIPE) {
-			seek_by_read(archive_handle, amount);
-		} else
-#endif
+	if (amount
+	 && lseek(fd, amount, SEEK_CUR) == (off_t) -1
+	) {
+		if (errno == ESPIPE)
+			seek_by_read(fd, amount);
+		else
 			bb_perror_msg_and_die("seek failure");
 	}
 }

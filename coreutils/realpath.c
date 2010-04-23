@@ -13,35 +13,24 @@
 #include "libbb.h"
 
 int realpath_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int realpath_main(int argc, char **argv)
+int realpath_main(int argc UNUSED_PARAM, char **argv)
 {
 	int retval = EXIT_SUCCESS;
 
-#if PATH_MAX > (BUFSIZ+1)
-	RESERVE_CONFIG_BUFFER(resolved_path, PATH_MAX);
-# define resolved_path_MUST_FREE 1
-#else
-#define resolved_path bb_common_bufsiz1
-# define resolved_path_MUST_FREE 0
-#endif
-
-	if (--argc == 0) {
+	if (!*++argv) {
 		bb_show_usage();
 	}
 
 	do {
-		argv++;
-		if (realpath(*argv, resolved_path) != NULL) {
+		char *resolved_path = xmalloc_realpath(*argv);
+	       	if (resolved_path != NULL) {
 			puts(resolved_path);
+			free(resolved_path);
 		} else {
 			retval = EXIT_FAILURE;
 			bb_simple_perror_msg(*argv);
 		}
-	} while (--argc);
-
-#if ENABLE_FEATURE_CLEAN_UP && resolved_path_MUST_FREE
-	RELEASE_CONFIG_BUFFER(resolved_path);
-#endif
+	} while (*++argv);
 
 	fflush_stdout_and_exit(retval);
 }

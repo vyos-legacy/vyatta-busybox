@@ -11,7 +11,6 @@
 /* http://www.opengroup.org/onlinepubs/007904975/utilities/tee.html */
 
 #include "libbb.h"
-#include <signal.h>
 
 int tee_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int tee_main(int argc, char **argv)
@@ -36,12 +35,12 @@ int tee_main(int argc, char **argv)
 	mode += (retval & 2);	/* Since 'a' is the 2nd option... */
 
 	if (retval & 1) {
-		signal(SIGINT, SIG_IGN); /* TODO - switch to sigaction. */
+		signal(SIGINT, SIG_IGN); /* TODO - switch to sigaction. (why?) */
 	}
 	retval = EXIT_SUCCESS;
 	/* gnu tee ignores SIGPIPE in case one of the output files is a pipe
 	 * that doesn't consume all its input.  Good idea... */
-	signal(SIGPIPE, SIG_IGN);	/* TODO - switch to sigaction. */
+	signal(SIGPIPE, SIG_IGN);
 
 	/* Allocate an array of FILE *'s, with one extra for a sentinal. */
 	fp = files = xzalloc(sizeof(FILE *) * (argc + 2));
@@ -50,14 +49,19 @@ int tee_main(int argc, char **argv)
 	files[0] = stdout;
 	goto GOT_NEW_FILE;
 	do {
-		*fp = fopen_or_warn(*argv, mode);
-		if (*fp == NULL) {
-			retval = EXIT_FAILURE;
-			continue;
+		*fp = stdout;
+		if (NOT_LONE_DASH(*argv)) {
+			*fp = fopen_or_warn(*argv, mode);
+			if (*fp == NULL) {
+				retval = EXIT_FAILURE;
+				argv++;
+				continue;
+			}
 		}
 		*np = *argv++;
  GOT_NEW_FILE:
-		setbuf(*fp++, NULL);	/* tee must not buffer output. */
+		setbuf(*fp, NULL);	/* tee must not buffer output. */
+		fp++;
 		np++;
 	} while (*argv);
 	/* names[0] will be filled later */

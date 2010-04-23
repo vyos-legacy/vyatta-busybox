@@ -6,7 +6,7 @@
 #include "libbb.h"
 #include "unarchive.h"
 
-char get_header_tar_gz(archive_handle_t *archive_handle)
+char FAST_FUNC get_header_tar_gz(archive_handle_t *archive_handle)
 {
 #if BB_MMU
 	unsigned char magic[2];
@@ -20,12 +20,13 @@ char get_header_tar_gz(archive_handle_t *archive_handle)
 	 * need the header. */
 #if BB_MMU
 	xread(archive_handle->src_fd, &magic, 2);
+	/* Can skip this check, but error message will be less clear */
 	if ((magic[0] != 0x1f) || (magic[1] != 0x8b)) {
 		bb_error_msg_and_die("invalid gzip magic");
 	}
 #endif
 
-	archive_handle->src_fd = open_transformer(archive_handle->src_fd, unpack_gz_stream, "gunzip");
+	open_transformer(archive_handle->src_fd, unpack_gz_stream, "gunzip");
 	archive_handle->offset = 0;
 	while (get_header_tar(archive_handle) == EXIT_SUCCESS)
 		continue;

@@ -10,7 +10,7 @@ config BASENAME
 	default n
 	help
 	  basename is used to strip the directory and suffix from filenames,
-	  leaving just the filename itself.  Enable this option if you wish
+	  leaving just the filename itself. Enable this option if you wish
 	  to enable the 'basename' utility.
 
 config CAL
@@ -24,7 +24,7 @@ config CAT
 	default n
 	help
 	  cat is used to concatenate files and print them to the standard
-	  output.  Enable this option if you wish to enable the 'cat' utility.
+	  output. Enable this option if you wish to enable the 'cat' utility.
 
 config CATV
 	bool "catv"
@@ -52,6 +52,13 @@ config CHOWN
 	  chown is used to change the user and/or group ownership
 	  of files.
 
+config FEATURE_CHOWN_LONG_OPTIONS
+	bool "Enable long options"
+	default n
+	depends on CHOWN && LONG_OPTS
+	help
+	  Enable use of long options
+
 config CHROOT
 	bool "chroot"
 	default n
@@ -78,6 +85,14 @@ config CP
 	help
 	  cp is used to copy files and directories.
 
+config FEATURE_CP_LONG_OPTIONS
+	bool "Enable long options for cp"
+	default n
+	depends on CP && LONG_OPTS
+	help
+	  Enable long options for cp.
+	  Also add support for --parents option.
+
 config CUT
 	bool "cut"
 	default n
@@ -100,6 +115,22 @@ config FEATURE_DATE_ISOFMT
 	  Enable option (-I) to output an ISO-8601 compliant
 	  date/time string.
 
+config FEATURE_DATE_COMPAT
+	bool "Support weird 'date MMDDhhmm[[YY]YY][.ss]' format"
+	default y
+	depends on DATE
+	help
+	  System time can be set by 'date -s DATE' and simply 'date DATE',
+	  but formats of DATE string are different. 'date DATE' accepts
+	  a rather weird MMDDhhmm[[YY]YY][.ss] format with completely
+	  unnatural placement of year between minutes and seconds.
+	  date -s (and other commands like touch -d) use more sensible
+	  formats (for one, ISO format YYYY-MM-DD hh:mm:ss.ssssss).
+
+	  With this option off, 'date DATE' is 'date -s DATE' support
+	  the same format. With it on, 'date DATE' additionally supports
+	  MMDDhhmm[[YY]YY][.ss] format.
+
 config DD
 	bool "dd"
 	default n
@@ -113,12 +144,22 @@ config FEATURE_DD_SIGNAL_HANDLING
 	default y
 	depends on DD
 	help
-	  sending a SIGUSR1 signal to a running `dd' process makes it
+	  Sending a SIGUSR1 signal to a running `dd' process makes it
 	  print to standard error the number of records read and written
 	  so far, then to resume copying.
 
-	  $ dd if=/dev/zero of=/dev/null& pid=$! $ kill -USR1 $pid; sleep 1; kill $pid
-	  10899206+0 records in 10899206+0 records out
+	  $ dd if=/dev/zero of=/dev/null&
+	  $ pid=$! kill -USR1 $pid; sleep 1; kill $pid
+	  10899206+0 records in
+	  10899206+0 records out
+
+config FEATURE_DD_THIRD_STATUS_LINE
+	bool "Enable the third status line upon signal"
+	default n
+	depends on DD && FEATURE_DD_SIGNAL_HANDLING
+	help
+	  Displays a coreutils-like third status line with transferred bytes,
+	  elapsed time and speed.
 
 config FEATURE_DD_IBS_OBS
 	bool "Enable ibs, obs and conv options"
@@ -135,12 +176,16 @@ config DF
 	  df reports the amount of disk space used and available
 	  on filesystems.
 
-config FEATURE_DF_INODE
-	bool "Enable -i (inode information)"
+config FEATURE_DF_FANCY
+	bool "Enable -a, -i, -B"
 	default n
 	depends on DF
 	help
-	  This option enables support for df -i.
+	  This option enables -a, -i and -B.
+
+	    -a Show all filesystems
+	    -i Inodes
+	    -B <SIZE> Blocksize
 
 config DIRNAME
 	bool "dirname"
@@ -188,7 +233,7 @@ config ECHO
 config FEATURE_FANCY_ECHO
 	bool "Enable echo options (-n and -e)"
 	default y
-	depends on ECHO
+	depends on ECHO || ASH_BUILTIN_ECHO || HUSH
 	help
 	  This adds options (-n and -e) to echo.
 
@@ -203,7 +248,7 @@ config ENV
 config FEATURE_ENV_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on ENV && GETOPT_LONG
+	depends on ENV && LONG_OPTS
 	help
 	  Support long options for the env applet.
 
@@ -216,7 +261,7 @@ config EXPAND
 config FEATURE_EXPAND_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on EXPAND && GETOPT_LONG
+	depends on EXPAND && LONG_OPTS
 	help
 	  Support long options for the expand applet.
 
@@ -232,7 +277,7 @@ config EXPR_MATH_SUPPORT_64
 	default n
 	depends on EXPR
 	help
-	  Enable 64-bit math support in the expr applet.  This will make
+	  Enable 64-bit math support in the expr applet. This will make
 	  the applet slightly larger, but will allow computation with very
 	  large numbers.
 
@@ -247,6 +292,12 @@ config FOLD
 	default n
 	help
 	  Wrap text to fit a specific width.
+
+config FSYNC
+	bool "fsync"
+	default n
+	help
+	  fsync is used to flush file-related cached blocks to disk.
 
 config HEAD
 	bool "head"
@@ -284,7 +335,7 @@ config INSTALL
 config FEATURE_INSTALL_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on INSTALL && GETOPT_LONG
+	depends on INSTALL && LONG_OPTS
 	help
 	  Support long options for the install applet.
 
@@ -357,7 +408,7 @@ config FEATURE_LS_USERNAME
 config FEATURE_LS_COLOR
 	bool "Allow use of color to identify file types"
 	default y
-	depends on LS && GETOPT_LONG
+	depends on LS && LONG_OPTS
 	help
 	  This enables the --color option to ls.
 
@@ -387,7 +438,7 @@ config MKDIR
 config FEATURE_MKDIR_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on MKDIR && GETOPT_LONG
+	depends on MKDIR && LONG_OPTS
 	help
 	  Support long options for the mkdir applet.
 
@@ -414,7 +465,7 @@ config MV
 config FEATURE_MV_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on MV && GETOPT_LONG
+	depends on MV && LONG_OPTS
 	help
 	  Support long options for the mv applet.
 
@@ -488,6 +539,14 @@ config RMDIR
 	help
 	  rmdir is used to remove empty directories.
 
+config FEATURE_RMDIR_LONG_OPTIONS
+	bool "Enable long options"
+	default n
+	depends on RMDIR && LONG_OPTS
+	help
+	  Support long options for the rmdir applet, including
+	  --ignore-fail-on-non-empty for compatibility with GNU rmdir.
+
 config SEQ
 	bool "seq"
 	default n
@@ -500,18 +559,45 @@ config SHA1SUM
 	help
 	  Compute and check SHA1 message digest
 
-config SLEEP
-	bool "sleep (single integer arg with no suffix)"
+config SHA256SUM
+	bool "sha256sum"
 	default n
 	help
-	  sleep is used to pause for a specified number of seconds,
+	  Compute and check SHA256 message digest
+
+config SHA512SUM
+	bool "sha512sum"
+	default n
+	help
+	  Compute and check SHA512 message digest
+
+config SLEEP
+	bool "sleep"
+	default n
+	help
+	  sleep is used to pause for a specified number of seconds.
+	  It comes in 3 versions:
+	  - small: takes one integer parameter
+	  - fancy: takes multiple integer arguments with suffixes:
+	    sleep 1d 2h 3m 15s
+	  - fancy with fractional numbers:
+	    sleep 2.3s 4.5h sleeps for 16202.3 seconds
+	  Last one is "the most compatible" with coreutils sleep,
+	  but it adds around 1k of code.
 
 config FEATURE_FANCY_SLEEP
-	bool "Enable multiple integer args and optional time suffixes"
+	bool "Enable multiple arguments and s/m/h/d suffixes"
 	default n
 	depends on SLEEP
 	help
 	  Allow sleep to pause for specified minutes, hours, and days.
+
+config FEATURE_FLOAT_SLEEP
+	bool "Enable fractional arguments"
+	default n
+	depends on FEATURE_FANCY_SLEEP
+	help
+	  Allow for fractional numeric parameters.
 
 config SORT
 	bool "sort"
@@ -520,13 +606,13 @@ config SORT
 	  sort is used to sort lines of text in specified files.
 
 config FEATURE_SORT_BIG
-	bool "full SuSv3 compliant sort (Support -ktcsbdfiozgM)"
+	bool "Full SuSv3 compliant sort (support -ktcsbdfiozgM)"
 	default y
 	depends on SORT
 	help
-	  Without this, sort only supports  -r, -u, and an integer version
-	  of -n.  Selecting this adds sort keys, floating point support, and
-	  more.  This adds a little over 3k to a nonstatic build on x86.
+	  Without this, sort only supports -r, -u, and an integer version
+	  of -n. Selecting this adds sort keys, floating point support, and
+	  more. This adds a little over 3k to a nonstatic build on x86.
 
 	  The SuSv3 sort standard is available at:
 	  http://www.opengroup.org/onlinepubs/007904975/utilities/sort.html
@@ -538,7 +624,7 @@ config SPLIT
 	  split a file into pieces.
 
 config FEATURE_SPLIT_FANCY
-	bool "fancy extensions"
+	bool "Fancy extensions"
 	default n
 	depends on SPLIT
 	help
@@ -558,7 +644,7 @@ config FEATURE_STAT_FORMAT
 	depends on STAT
 	help
 	  Without this, stat will not support the '-c format' option where
-	  users can pass a custom format string for output.  This adds about
+	  users can pass a custom format string for output. This adds about
 	  7k to a nonstatic build on amd64.
 
 config STTY
@@ -579,6 +665,12 @@ config SYNC
 	help
 	  sync is used to flush filesystem buffers.
 
+config TAC
+	bool "tac"
+	default n
+	help
+	  tac is used to concatenate and print files in reverse.
+
 config TAIL
 	bool "tail"
 	default n
@@ -587,12 +679,16 @@ config TAIL
 	  from files.
 
 config FEATURE_FANCY_TAIL
-	bool "Enable extra tail options (-q, -s, and -v)"
+	bool "Enable extra tail options (-q, -s, -v, and -F)"
 	default y
 	depends on TAIL
 	help
 	  The options (-q, -s, and -v) are provided by GNU tail, but
 	  are not specific in the SUSv3 standard.
+
+	    -q      Never output headers giving file names
+	    -s SEC  Wait SEC seconds between reads with -f
+	    -v      Always output headers giving file names
 
 config TEE
 	bool "tee"
@@ -602,7 +698,7 @@ config TEE
 	  to standard output and files.
 
 config FEATURE_TEE_USE_BLOCK_IO
-	bool "Enable block i/o (larger/faster) instead of byte i/o."
+	bool "Enable block I/O (larger/faster) instead of byte I/O"
 	default n
 	depends on TEE
 	help
@@ -613,13 +709,13 @@ config TEST
 	default n
 	help
 	  test is used to check file types and compare values,
-	  returning an appropriate exit code.  The bash shell
+	  returning an appropriate exit code. The bash shell
 	  has test built in, ash can build it in optionally.
 
 config FEATURE_TEST_64
 	bool "Extend test to 64 bit"
 	default n
-	depends on TEST
+	depends on TEST || ASH_BUILTIN_TEST || HUSH
 	help
 	  Enable 64-bit support in test.
 
@@ -684,7 +780,7 @@ config UNEXPAND
 config FEATURE_UNEXPAND_LONG_OPTIONS
 	bool "Enable long options"
 	default n
-	depends on UNEXPAND && GETOPT_LONG
+	depends on UNEXPAND && LONG_OPTS
 	help
 	  Support long options for the unexpand applet.
 
@@ -724,12 +820,12 @@ config FEATURE_WC_LARGE
 	default n
 	depends on WC
 	help
-	  Use "unsigned long long" in wc for count variables
+	  Use "unsigned long long" in wc for counter variables.
 
 config WHO
 	bool "who"
 	default n
-	select FEATURE_UTMP
+	depends on FEATURE_UTMP
 	help
 	  who is used to show who is logged on.
 
@@ -781,13 +877,13 @@ config FEATURE_HUMAN_READABLE
 	help
 	  Allow df, du, and ls to have human readable output.
 
-comment "Common options for md5sum, sha1sum"
-	depends on MD5SUM || SHA1SUM
+comment "Common options for md5sum, sha1sum, sha256sum, sha512sum"
+	depends on MD5SUM || SHA1SUM || SHA256SUM || SHA512SUM
 
 config FEATURE_MD5_SHA1_SUM_CHECK
 	bool "Enable -c, -s and -w options"
 	default n
-	depends on MD5SUM || SHA1SUM
+	depends on MD5SUM || SHA1SUM || SHA256SUM || SHA512SUM
 	help
 	  Enabling the -c options allows files to be checked
 	  against pre-calculated hash values.

@@ -1,4 +1,7 @@
 /* vi: set sw=4 ts=4: */
+/*
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
+ */
 
 /* BB_AUDIT SUSv3 N/A -- Apparently a busybox (obsolete?) extension. */
 
@@ -15,5 +18,5 @@ int length_main(int argc, char **argv)
 
 	printf("%u\n", (unsigned)strlen(*argv));
 
-	return fflush(stdout);
+	return fflush_all();
 }

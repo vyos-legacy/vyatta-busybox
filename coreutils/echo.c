@@ -27,11 +27,9 @@
 
 /* This is a NOFORK applet. Be very careful! */
 
-/* argc is unused, but removing it precludes compiler from
- * using call -> jump optimization */
+/* NB: can be used by shell even if not enabled as applet */
 
-int echo_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int echo_main(int argc, char **argv)
+int echo_main(int argc UNUSED_PARAM, char **argv)
 {
 	const char *arg;
 #if !ENABLE_FEATURE_FANCY_ECHO
@@ -48,8 +46,11 @@ int echo_main(int argc, char **argv)
 	 * even if libc receives EBADF on write attempts, it feels determined
 	 * to output data no matter what. So it will try later,
 	 * and possibly will clobber future output. Not good. */
-	if (dup2(1, 1) != 1)
-		return -1;
+// TODO: check fcntl() & O_ACCMODE == O_WRONLY or O_RDWR?
+	if (fcntl(1, F_GETFL) == -1)
+		return 1; /* match coreutils 6.10 (sans error msg to stderr) */
+	//if (dup2(1, 1) != 1) - old way
+	//	return 1;
 
 	arg = *++argv;
 	if (!arg)
@@ -60,8 +61,8 @@ int echo_main(int argc, char **argv)
 	char eflag = 0;
 
 	/* We must check that stdout is not closed. */
-	if (dup2(1, 1) != 1)
-		return -1;
+	if (fcntl(1, F_GETFL) == -1)
+		return 1;
 
 	while (1) {
 		arg = *++argv;
@@ -110,15 +111,19 @@ int echo_main(int argc, char **argv)
 				}
 #if !ENABLE_FEATURE_FANCY_ECHO
 				/* SUSv3 specifies that octal escapes must begin with '0'. */
-				if ( (((unsigned char)*arg) - '1') >= 7)
+				if ( ((int)(unsigned char)(*arg) - '0') >= 8) /* '8' or bigger */
 #endif
 				{
 					/* Since SUSv3 mandates a first digit of 0, 4-digit octals
 					* of the form \0### are accepted. */
-					if (*arg == '0' && ((unsigned char)(arg[1]) - '0') < 8) {
-						arg++;
+					if (*arg == '0') {
+						/* NB: don't turn "...\0" into "...\" */
+						if (arg[1] && ((unsigned char)(arg[1]) - '0') < 8) {
+							arg++;
+						}
 					}
-					/* bb_process_escape_sequence can handle nul correctly */
+					/* bb_process_escape_sequence handles NUL correctly
+					 * ("...\" case). */
 					c = bb_process_escape_sequence(&arg);
 				}
 			}
@@ -136,7 +141,7 @@ int echo_main(int argc, char **argv)
 		bb_putchar('\n');
 	}
  ret:
-	return fflush(stdout);
+	return fflush_all();
 }
 
 /*-

@@ -8,10 +8,7 @@
  *
  * Copyright 1995, 1996, 1997, 1998, 1999, 2000 by Theodore Ts'o.
  *
- * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
- * %End-Header%
+ * Licensed under GPLv2, see file LICENSE in this tarball for details.
  */
 
 /*
@@ -395,7 +392,7 @@ static time_t parse_time(char *str)
 		ts.tm_mday = 0;
 #endif
 	if (ts.tm_mday == 0) {
-		bb_error_msg_and_die("Cannot parse date/time specifier: %s", str);
+		bb_error_msg_and_die("can't parse date/time specifier: %s", str);
 	}
 	return mktime(&ts);
 }
@@ -557,20 +554,6 @@ static void parse_tune2fs_options(int argc, char **argv)
 	device_name = x_blkid_get_devname(argv[optind]);
 }
 
-#ifdef CONFIG_FINDFS
-static ATTRIBUTE_NORETURN void do_findfs(int argc, char **argv)
-{
-	if ((argc != 2) ||
-	    (strncmp(argv[1], "LABEL=", 6) && strncmp(argv[1], "UUID=", 5)))
-		bb_show_usage();
-	device_name = x_blkid_get_devname(argv[1]);
-	puts(device_name);
-	exit(0);
-}
-#else
-#define do_findfs(x, y)
-#endif
-
 static void tune2fs_clean_up(void)
 {
 	if (ENABLE_FEATURE_CLEAN_UP && device_name) free(device_name);
@@ -588,9 +571,7 @@ int tune2fs_main(int argc, char **argv)
 	if (ENABLE_FEATURE_CLEAN_UP)
 		atexit(tune2fs_clean_up);
 
-	if (ENABLE_FINDFS && (applet_name[0] == 'f')) /* findfs */
-		do_findfs(argc, argv);  /* no return */
-	else if (ENABLE_E2LABEL && (applet_name[0] == 'e')) /* e2label */
+	if (ENABLE_E2LABEL && (applet_name[0] == 'e')) /* e2label */
 		parse_e2label_options(argc, argv);
 	else
 		parse_tune2fs_options(argc, argv);  /* tune2fs */
@@ -609,7 +590,7 @@ int tune2fs_main(int argc, char **argv)
 	}
 	retval = ext2fs_check_if_mounted(device_name, &mount_flags);
 	if (retval)
-		bb_error_msg_and_die("cannot determine if %s is mounted", device_name);
+		bb_error_msg_and_die("can't determine if %s is mounted", device_name);
 	/* Normally we only need to write out the superblock */
 	fs->flags |= EXT2_FLAG_SUPER_ONLY;
 

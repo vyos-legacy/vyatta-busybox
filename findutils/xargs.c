@@ -25,10 +25,10 @@
 /* COMPAT:  SYSV version defaults size (and has a max value of) to 470.
    We try to make it as large as possible. */
 #if !defined(ARG_MAX) && defined(_SC_ARG_MAX)
-#define ARG_MAX sysconf (_SC_ARG_MAX)
+# define ARG_MAX sysconf(_SC_ARG_MAX)
 #endif
-#ifndef ARG_MAX
-#define ARG_MAX 470
+#if !defined(ARG_MAX)
+# define ARG_MAX 470
 #endif
 
 
@@ -64,16 +64,9 @@ static int xargs_exec(char **args)
 		bb_error_msg("%s: exited with status 255; aborting", args[0]);
 		return 124;
 	}
-/* Huh? I think we won't see this, ever. We don't wait with WUNTRACED!
-	if (WIFSTOPPED(status)) {
-		bb_error_msg("%s: stopped by signal %d",
-			args[0], WSTOPSIG(status));
-		return 125;
-	}
-*/
-	if (status >= 1000) {
+	if (status >= 0x180) {
 		bb_error_msg("%s: terminated by signal %d",
-			args[0], status - 1000);
+			args[0], status - 0x180);
 		return 125;
 	}
 	if (status)
@@ -233,7 +226,7 @@ static xlist_t *process_stdin(xlist_t *list_arg,
 		}
 		if (s == NULL)
 			s = p = buf;
-		if ((p - buf) >= mc)
+		if ((size_t)(p - buf) >= mc)
 			bb_error_msg_and_die("argument line too long");
 		*p++ = (c == EOF ? '\0' : c);
 		if (c == EOF) { /* word's delimiter or EOF detected */
@@ -277,9 +270,9 @@ static int xargs_ask_confirmation(void)
 	FILE *tty_stream;
 	int c, savec;
 
-	tty_stream = xfopen(CURRENT_TTY, "r");
+	tty_stream = xfopen_for_read(CURRENT_TTY);
 	fputs(" ?...", stderr);
-	fflush(stderr);
+	fflush_all();
 	c = savec = getc(tty_stream);
 	while (c != EOF && c != '\n')
 		c = getc(tty_stream);
@@ -292,7 +285,7 @@ static int xargs_ask_confirmation(void)
 
 #if ENABLE_FEATURE_XARGS_SUPPORT_ZERO_TERM
 static xlist_t *process0_stdin(xlist_t *list_arg,
-		const char *eof_str ATTRIBUTE_UNUSED, size_t mc, char *buf)
+		const char *eof_str UNUSED_PARAM, size_t mc, char *buf)
 {
 	int c;                  /* current char */
 	char *s = NULL;         /* start word */
@@ -355,23 +348,25 @@ enum {
 	OPTBIT_UPTO_NUMBER,
 	OPTBIT_UPTO_SIZE,
 	OPTBIT_EOF_STRING,
-	USE_FEATURE_XARGS_SUPPORT_CONFIRMATION(OPTBIT_INTERACTIVE,)
-	USE_FEATURE_XARGS_SUPPORT_TERMOPT(     OPTBIT_TERMINATE  ,)
-	USE_FEATURE_XARGS_SUPPORT_ZERO_TERM(   OPTBIT_ZEROTERM   ,)
+	OPTBIT_EOF_STRING1,
+	IF_FEATURE_XARGS_SUPPORT_CONFIRMATION(OPTBIT_INTERACTIVE,)
+	IF_FEATURE_XARGS_SUPPORT_TERMOPT(     OPTBIT_TERMINATE  ,)
+	IF_FEATURE_XARGS_SUPPORT_ZERO_TERM(   OPTBIT_ZEROTERM   ,)
 
-	OPT_VERBOSE     = 1<<OPTBIT_VERBOSE    ,
-	OPT_NO_EMPTY    = 1<<OPTBIT_NO_EMPTY   ,
-	OPT_UPTO_NUMBER = 1<<OPTBIT_UPTO_NUMBER,
-	OPT_UPTO_SIZE   = 1<<OPTBIT_UPTO_SIZE  ,
-	OPT_EOF_STRING  = 1<<OPTBIT_EOF_STRING ,
-	OPT_INTERACTIVE = USE_FEATURE_XARGS_SUPPORT_CONFIRMATION((1<<OPTBIT_INTERACTIVE)) + 0,
-	OPT_TERMINATE   = USE_FEATURE_XARGS_SUPPORT_TERMOPT(     (1<<OPTBIT_TERMINATE  )) + 0,
-	OPT_ZEROTERM    = USE_FEATURE_XARGS_SUPPORT_ZERO_TERM(   (1<<OPTBIT_ZEROTERM   )) + 0,
+	OPT_VERBOSE     = 1 << OPTBIT_VERBOSE    ,
+	OPT_NO_EMPTY    = 1 << OPTBIT_NO_EMPTY   ,
+	OPT_UPTO_NUMBER = 1 << OPTBIT_UPTO_NUMBER,
+	OPT_UPTO_SIZE   = 1 << OPTBIT_UPTO_SIZE  ,
+	OPT_EOF_STRING  = 1 << OPTBIT_EOF_STRING , /* GNU: -e[<param>] */
+	OPT_EOF_STRING1 = 1 << OPTBIT_EOF_STRING1, /* SUS: -E<param> */
+	OPT_INTERACTIVE = IF_FEATURE_XARGS_SUPPORT_CONFIRMATION((1 << OPTBIT_INTERACTIVE)) + 0,
+	OPT_TERMINATE   = IF_FEATURE_XARGS_SUPPORT_TERMOPT(     (1 << OPTBIT_TERMINATE  )) + 0,
+	OPT_ZEROTERM    = IF_FEATURE_XARGS_SUPPORT_ZERO_TERM(   (1 << OPTBIT_ZEROTERM   )) + 0,
 };
-#define OPTION_STR "+trn:s:e::" \
-	USE_FEATURE_XARGS_SUPPORT_CONFIRMATION("p") \
-	USE_FEATURE_XARGS_SUPPORT_TERMOPT(     "x") \
-	USE_FEATURE_XARGS_SUPPORT_ZERO_TERM(   "0")
+#define OPTION_STR "+trn:s:e::E:" \
+	IF_FEATURE_XARGS_SUPPORT_CONFIRMATION("p") \
+	IF_FEATURE_XARGS_SUPPORT_TERMOPT(     "x") \
+	IF_FEATURE_XARGS_SUPPORT_ZERO_TERM(   "0")
 
 int xargs_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int xargs_main(int argc, char **argv)
@@ -383,9 +378,7 @@ int xargs_main(int argc, char **argv)
 	int child_error = 0;
 	char *max_args, *max_chars;
 	int n_max_arg;
-	size_t n_chars = 0;
-	long orig_arg_max;
-	const char *eof_str = "_";
+	const char *eof_str = NULL;
 	unsigned opt;
 	size_t n_max_chars;
 #if ENABLE_FEATURE_XARGS_SUPPORT_ZERO_TERM
@@ -394,10 +387,16 @@ int xargs_main(int argc, char **argv)
 #define read_args process_stdin
 #endif
 
-	opt = getopt32(argv, OPTION_STR, &max_args, &max_chars, &eof_str);
+	opt = getopt32(argv, OPTION_STR, &max_args, &max_chars, &eof_str, &eof_str);
+
+	/* -E ""? You may wonder why not just omit -E?
+	 * This is used for portability:
+	 * old xargs was using "_" as default for -E / -e */
+	if ((opt & OPT_EOF_STRING1) && eof_str[0] == '\0')
+		eof_str = NULL;
 
 	if (opt & OPT_ZEROTERM)
-		USE_FEATURE_XARGS_SUPPORT_ZERO_TERM(read_args = process0_stdin);
+		IF_FEATURE_XARGS_SUPPORT_ZERO_TERM(read_args = process0_stdin);
 
 	argv += optind;
 	argc -= optind;
@@ -407,28 +406,35 @@ int xargs_main(int argc, char **argv)
 		argc++;
 	}
 
-	orig_arg_max = ARG_MAX;
-	if (orig_arg_max == -1)
-		orig_arg_max = LONG_MAX;
-	orig_arg_max -= 2048;   /* POSIX.2 requires subtracting 2048 */
+	n_max_chars = ARG_MAX; /* might be calling sysconf(_SC_ARG_MAX) */
+	if (n_max_chars < 4*1024); /* paranoia */
+		n_max_chars = LONG_MAX;
+	/* The Open Group Base Specifications Issue 6:
+	 * "The xargs utility shall limit the command line length such that
+	 * when the command line is invoked, the combined argument
+	 * and environment lists (see the exec family of functions
+	 * in the System Interfaces volume of IEEE Std 1003.1-2001)
+	 * shall not exceed {ARG_MAX}-2048 bytes".
+	 */
+	n_max_chars -= 2048;
+	/* Sanity check for systems with huge ARG_MAX defines (e.g., Suns which
+	 * have it at 1 meg).  Things will work fine with a large ARG_MAX but it
+	 * will probably hurt the system more than it needs to; an array of this
+	 * size is allocated.
+	 */
+	if (n_max_chars > 20 * 1024)
+		n_max_chars = 20 * 1024;
 
 	if (opt & OPT_UPTO_SIZE) {
-		n_max_chars = xatoul_range(max_chars, 1, orig_arg_max);
+		size_t n_chars = 0;
+		n_max_chars = xatoul_range(max_chars, 1, n_max_chars);
 		for (i = 0; i < argc; i++) {
 			n_chars += strlen(*argv) + 1;
 		}
-		if (n_max_chars < n_chars) {
-			bb_error_msg_and_die("cannot fit single argument within argument list size limit");
+		if (n_max_chars <= n_chars) {
+			bb_error_msg_and_die("can't fit single argument within argument list size limit");
 		}
 		n_max_chars -= n_chars;
-	} else {
-		/* Sanity check for systems with huge ARG_MAX defines (e.g., Suns which
-		   have it at 1 meg).  Things will work fine with a large ARG_MAX but it
-		   will probably hurt the system more than it needs to; an array of this
-		   size is allocated.  */
-		if (orig_arg_max > 20 * 1024)
-			orig_arg_max = 20 * 1024;
-		n_max_chars = orig_arg_max;
 	}
 	max_chars = xmalloc(n_max_chars);
 
@@ -441,9 +447,9 @@ int xargs_main(int argc, char **argv)
 	while ((list = read_args(list, eof_str, n_max_chars, max_chars)) != NULL ||
 		!(opt & OPT_NO_EMPTY))
 	{
+		size_t n_chars = 0;
 		opt |= OPT_NO_EMPTY;
 		n = 0;
-		n_chars = 0;
 #if ENABLE_FEATURE_XARGS_SUPPORT_TERMOPT
 		for (cur = list; cur;) {
 			n_chars += cur->length;
@@ -502,7 +508,7 @@ int xargs_main(int argc, char **argv)
 		if (child_error > 0 && child_error != 123) {
 			break;
 		}
-	}
+	} /* while */
 	if (ENABLE_FEATURE_CLEAN_UP)
 		free(max_chars);
 	return child_error;
@@ -517,7 +523,7 @@ void bb_show_usage(void)
 {
 	fprintf(stderr, "Usage: %s [-p] [-r] [-t] -[x] [-n max_arg] [-s max_chars]\n",
 		applet_name);
-	exit(1);
+	exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv)

@@ -28,7 +28,8 @@ const char bb_msg_write_error[] ALIGN1 = "write error";
 const char bb_msg_read_error[] ALIGN1 = "read error";
 const char bb_msg_unknown[] ALIGN1 = "(unknown)";
 const char bb_msg_can_not_create_raw_socket[] ALIGN1 = "can't create raw socket";
-const char bb_msg_perm_denied_are_you_root[] ALIGN1 = "permission denied. (are you root?)";
+const char bb_msg_perm_denied_are_you_root[] ALIGN1 = "permission denied (are you root?)";
+const char bb_msg_you_must_be_root[] ALIGN1 = "you must be root";
 const char bb_msg_requires_arg[] ALIGN1 = "%s requires an argument";
 const char bb_msg_invalid_arg[] ALIGN1 = "invalid argument '%s' to '%s'";
 const char bb_msg_standard_input[] ALIGN1 = "standard input";
@@ -70,8 +71,4 @@ const char bb_path_wtmp_file[] ALIGN1 =
 /* We use it for "global" data via *(struct global*)&bb_common_bufsiz1.
  * Since gcc insists on aligning struct global's members, it would be a pity
  * (and an alignment fault on some CPUs) to mess it up. */
-char bb_common_bufsiz1[COMMON_BUFSIZE] __attribute__(( aligned(sizeof(long long)) ));
-
-struct globals;
-/* Make it reside in R/W memory: */
-struct globals *const ptr_to_globals __attribute__ ((section (".data")));
+char bb_common_bufsiz1[COMMON_BUFSIZE] ALIGNED(sizeof(long long));

@@ -23,31 +23,21 @@
 
 #include "libbb.h"
 
-static FILE *cmp_xfopen_input(const char *filename)
-{
-	FILE *fp;
-
-	fp = fopen_or_warn_stdin(filename);
-	if (fp)
-		return fp;
-	xfunc_die();	/* We already output an error message. */
-}
-
 static const char fmt_eof[] ALIGN1 = "cmp: EOF on %s\n";
-static const char fmt_differ[] ALIGN1 = "%s %s differ: char %"OFF_FMT"d, line %d\n";
-// This fmt_l_opt uses gnu-isms.  SUSv3 would be "%.0s%.0s%"OFF_FMT"d %o %o\n"
-static const char fmt_l_opt[] ALIGN1 = "%.0s%.0s%"OFF_FMT"d %3o %3o\n";
+static const char fmt_differ[] ALIGN1 = "%s %s differ: char %"OFF_FMT"u, line %u\n";
+// This fmt_l_opt uses gnu-isms.  SUSv3 would be "%.0s%.0s%"OFF_FMT"u %o %o\n"
+static const char fmt_l_opt[] ALIGN1 = "%.0s%.0s%"OFF_FMT"u %3o %3o\n";
 
 static const char opt_chars[] ALIGN1 = "sl";
 #define CMP_OPT_s (1<<0)
 #define CMP_OPT_l (1<<1)
 
 int cmp_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int cmp_main(int argc, char **argv)
+int cmp_main(int argc UNUSED_PARAM, char **argv)
 {
 	FILE *fp1, *fp2, *outfile = stdout;
 	const char *filename1, *filename2 = "-";
-	USE_DESKTOP(off_t skip1 = 0, skip2 = 0;)
+	IF_DESKTOP(off_t skip1 = 0, skip2 = 0;)
 	off_t char_pos = 0;
 	int line_pos = 1; /* Hopefully won't overflow... */
 	const char *fmt;
@@ -58,14 +48,14 @@ int cmp_main(int argc, char **argv)
 	xfunc_error_retval = 2;	/* 1 is returned if files are different. */
 
 	opt_complementary = "-1"
-			USE_DESKTOP(":?4")
-			SKIP_DESKTOP(":?2")
+			IF_DESKTOP(":?4")
+			IF_NOT_DESKTOP(":?2")
 			":l--s:s--l";
 	opt = getopt32(argv, opt_chars);
 	argv += optind;
 
 	filename1 = *argv;
-	fp1 = cmp_xfopen_input(filename1);
+	fp1 = xfopen_stdin(filename1);
 
 	if (*++argv) {
 		filename2 = *argv;
@@ -79,7 +69,7 @@ int cmp_main(int argc, char **argv)
 #endif
 	}
 
-	fp2 = cmp_xfopen_input(filename2);
+	fp2 = xfopen_stdin(filename2);
 	if (fp1 == fp2) {		/* Paranoia check... stdin == stdin? */
 		/* Note that we don't bother reading stdin.  Neither does gnu wc.
 		 * But perhaps we should, so that other apps down the chain don't
@@ -118,7 +108,7 @@ int cmp_main(int argc, char **argv)
 				outfile = stderr;
 				/* There may have been output to stdout (option -l), so
 				 * make sure we fflush before writing to stderr. */
-				xfflush_stdout();
+				fflush_all();
 			}
 			if (!(opt & CMP_OPT_s)) {
 				if (opt & CMP_OPT_l) {

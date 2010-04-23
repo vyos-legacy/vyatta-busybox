@@ -9,12 +9,12 @@ config AWK
 	bool "awk"
 	default n
 	help
-	  Awk is used as a pattern scanning and processing language.  This is
+	  Awk is used as a pattern scanning and processing language. This is
 	  the BusyBox implementation of that programming language.
 
-config FEATURE_AWK_MATH
+config FEATURE_AWK_LIBM
 	bool "Enable math functions (requires libm)"
-	default y
+	default n
 	depends on AWK
 	help
 	  Enable math functions of the Awk programming language.
@@ -35,13 +35,12 @@ config DIFF
 	  differences between them in a form that can be given to
 	  the patch command.
 
-config FEATURE_DIFF_BINARY
-	bool "Enable checks for binary files"
-	default y
-	depends on DIFF
+config FEATURE_DIFF_LONG_OPTIONS
+	bool "Enable long options"
+	default n
+	depends on DIFF && LONG_OPTS
 	help
-	  This option enables support for checking for binary files
-	  before a comparison is carried out.
+	  Enable use of long options.
 
 config FEATURE_DIFF_DIR
 	bool "Enable directory support"
@@ -51,20 +50,12 @@ config FEATURE_DIFF_DIR
 	  This option enables support for directory and subdirectory
 	  comparison.
 
-config FEATURE_DIFF_MINIMAL
-	bool "Enable -d option to find smaller sets of changes"
-	default n
-	depends on DIFF
-	help
-	  Enabling this option allows the use of -d to make diff
-	  try hard to find the smallest possible set of changes.
-
 config ED
 	bool "ed"
 	default n
 	help
 	  The original 1970's Unix text editor, from the days of teletypes.
-	  Small, simple, evil.  Part of SUSv3.  If you're not already using
+	  Small, simple, evil. Part of SUSv3. If you're not already using
 	  this, you don't need it.
 
 config PATCH
@@ -84,9 +75,9 @@ config VI
 	bool "vi"
 	default n
 	help
-	  'vi' is a text editor.  More specifically, it is the One True
-	  text editor <grin>.  It does, however, have a rather steep
-	  learning curve.  If you are not already comfortable with 'vi'
+	  'vi' is a text editor. More specifically, it is the One True
+	  text editor <grin>. It does, however, have a rather steep
+	  learning curve. If you are not already comfortable with 'vi'
 	  you may wish to use something else.
 
 config FEATURE_VI_MAX_LEN
@@ -113,7 +104,7 @@ config FEATURE_VI_COLON
 	default y
 	depends on VI
 	help
-	  Enable a limited set of colon commands for vi.  This does not
+	  Enable a limited set of colon commands for vi. This does not
 	  provide an "ex" mode.
 
 config FEATURE_VI_YANKMARK
@@ -137,7 +128,7 @@ config FEATURE_VI_USE_SIGNALS
 	default y
 	depends on VI
 	help
-	  Selecting this option will make busybox vi signal aware.  This will
+	  Selecting this option will make busybox vi signal aware. This will
 	  make busybox vi support SIGWINCH to deal with Window Changes, catch
 	  Ctrl-Z and Ctrl-C and alarms.
 
@@ -176,6 +167,18 @@ config FEATURE_VI_WIN_RESIZE
 	depends on VI
 	help
 	  Make busybox vi behave nicely with terminals that get resized.
+
+config FEATURE_VI_ASK_TERMINAL
+	bool "Use 'tell me cursor position' ESC sequence to measure window"
+	default n
+	depends on VI
+	help
+	  If terminal size can't be retrieved and $LINES/$COLUMNS are not set,
+	  this option makes vi perform a last-ditch effort to find it:
+	  vi positions cursor to 999,999 and asks terminal to report real
+	  cursor position using "ESC [ 6 n" escape sequence, then reads stdin.
+
+	  This is not clean but helps a lot on serial lines and such.
 
 config FEATURE_VI_OPTIMIZE_CURSOR
 	bool "Optimize cursor movement"

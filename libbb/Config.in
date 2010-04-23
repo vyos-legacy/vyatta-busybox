@@ -13,7 +13,7 @@ config PASSWORD_MINLEN
 	  Minimum allowable password length.
 
 config MD5_SIZE_VS_SPEED
-	int " MD5: Trade Bytes for Speed"
+	int "MD5: Trade bytes for speed (0:fast, 3:slow)"
 	default 2
 	range 0 3
 	help
@@ -57,20 +57,12 @@ config FEATURE_EDITING_MAX_LEN
 	  You may want to decrease this parameter if your target machine
 	  benefits from smaller stack usage.
 
-config FEATURE_EDITING_FANCY_KEYS
-	bool "Additional editing keys"
-	default n
-	depends on FEATURE_EDITING
-	help
-	  Enable additonal editing keys (Ctrl-E, Ctrl-U etc).
-	  Arrow keys, Home/End/Delete and Ctrl-W work even without this option.
-
 config FEATURE_EDITING_VI
 	bool "vi-style line editing commands"
 	default n
 	depends on FEATURE_EDITING
 	help
-	  Enable vi-style line editing.  In shells, this mode can be
+	  Enable vi-style line editing. In shells, this mode can be
 	  turned on and off with "set -o vi" and "set +o vi".
 
 config FEATURE_EDITING_HISTORY
@@ -110,6 +102,42 @@ config FEATURE_EDITING_FANCY_PROMPT
 	  Setting this option allows for prompts to use things like \w and
 	  \$ and escape codes.
 
+config FEATURE_EDITING_ASK_TERMINAL
+	bool "Query cursor position from terminal"
+	default n
+	depends on FEATURE_EDITING
+	help
+	  Allow usage of "ESC [ 6 n" sequence. Terminal answers back with
+	  current cursor position. This information is used to make line
+	  editing more robust in some cases.
+	  If you are not sure whether your terminals respond to this code
+	  correctly, or want to save on code size (about 400 bytes),
+	  then do not turn this option on.
+
+config FEATURE_NON_POSIX_CP
+	bool "Non-POSIX, but safer, copying to special nodes"
+	default y
+	help
+	  With this option, "cp file symlink" will delete symlink
+	  and create a regular file. This does not conform to POSIX,
+	  but prevents a symlink attack.
+	  Similarly, "cp file device" will not send file's data
+	  to the device.
+
+config FEATURE_VERBOSE_CP_MESSAGE
+	bool "Give more precise messages when copy fails (cp, mv etc)"
+	default n
+	help
+	  Error messages with this feature enabled:
+	    $ cp file /does_not_exist/file
+	    cp: cannot create '/does_not_exist/file': Path does not exist
+	    $ cp file /vmlinuz/file
+	    cp: cannot stat '/vmlinuz/file': Path has non-directory component
+	  If this feature is not enabled, they will be, respectively:
+	    cp: cannot create '/does_not_exist/file': No such file or directory
+	    cp: cannot stat '/vmlinuz/file': Not a directory
+	  This will cost you ~60 bytes.
+
 config FEATURE_COPYBUF_KB
 	int "Copy buffer size, in kilobytes"
 	range 1 1024
@@ -137,4 +165,12 @@ config IOCTL_HEX2STR_ERROR
 	  Use ioctl names rather than hex values in error messages
 	  (e.g. VT_DISALLOCATE rather than 0x5608). If disabled this
 	  saves about 1400 bytes.
+
+config FEATURE_HWIB
+	bool "Support infiniband HW"
+	default y
+	help
+	  Support for printing infiniband addresses in
+	  network applets.
+
 endmenu

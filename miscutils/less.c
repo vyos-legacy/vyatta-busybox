@@ -28,10 +28,6 @@
 #include "xregex.h"
 #endif
 
-/* FIXME: currently doesn't work right */
-#undef ENABLE_FEATURE_LESS_FLAGCS
-#define ENABLE_FEATURE_LESS_FLAGCS 0
-
 /* The escape codes for highlighted and normal text */
 #define HIGHLIGHT "\033[7m"
 #define NORMAL "\033[0m"
@@ -40,45 +36,22 @@
 /* The escape code to clear to end of line */
 #define CLEAR_2_EOL "\033[K"
 
-/* These are the escape sequences corresponding to special keys */
 enum {
-	REAL_KEY_UP = 'A',
-	REAL_KEY_DOWN = 'B',
-	REAL_KEY_RIGHT = 'C',
-	REAL_KEY_LEFT = 'D',
-	REAL_PAGE_UP = '5',
-	REAL_PAGE_DOWN = '6',
-	REAL_KEY_HOME = '7', // vt100? linux vt? or what?
-	REAL_KEY_END = '8',
-	REAL_KEY_HOME_ALT = '1', // ESC [1~ (vt100? linux vt? or what?)
-	REAL_KEY_END_ALT = '4', // ESC [4~
-	REAL_KEY_HOME_XTERM = 'H',
-	REAL_KEY_END_XTERM = 'F',
-
-/* These are the special codes assigned by this program to the special keys */
-	KEY_UP = 20,
-	KEY_DOWN = 21,
-	KEY_RIGHT = 22,
-	KEY_LEFT = 23,
-	PAGE_UP = 24,
-	PAGE_DOWN = 25,
-	KEY_HOME = 26,
-	KEY_END = 27,
-
 /* Absolute max of lines eaten */
 	MAXLINES = CONFIG_FEATURE_LESS_MAXLINES,
-
 /* This many "after the end" lines we will show (at max) */
 	TILDES = 1,
 };
 
 /* Command line options */
 enum {
-	FLAG_E = 1,
+	FLAG_E = 1 << 0,
 	FLAG_M = 1 << 1,
 	FLAG_m = 1 << 2,
 	FLAG_N = 1 << 3,
 	FLAG_TILDE = 1 << 4,
+	FLAG_I = 1 << 5,
+	FLAG_S = (1 << 6) * ENABLE_FEATURE_LESS_DASHCMD,
 /* hijack command line options variable for internal state vars */
 	LESS_STATE_MATCH_BACKWARDS = 1 << 15,
 };
@@ -90,15 +63,19 @@ enum { pattern_valid = 0 };
 struct globals {
 	int cur_fline; /* signed */
 	int kbd_fd;  /* fd to get input from */
+	int less_gets_pos;
 /* last position in last line, taking into account tabs */
-	size_t linepos;
-	unsigned max_displayed_line;
+	size_t last_line_pos;
 	unsigned max_fline;
 	unsigned max_lineno; /* this one tracks linewrap */
+	unsigned max_displayed_line;
 	unsigned width;
+#if ENABLE_FEATURE_LESS_WINCH
+	unsigned winch_counter;
+#endif
 	ssize_t eof_error; /* eof if 0, error if < 0 */
-	size_t readpos;
-	size_t readeof;
+	ssize_t readpos;
+	ssize_t readeof; /* must be signed */
 	const char **buffer;
 	const char **flines;
 	const char *empty_line_marker;
@@ -113,21 +90,27 @@ struct globals {
 #if ENABLE_FEATURE_LESS_REGEXP
 	unsigned *match_lines;
 	int match_pos; /* signed! */
-	unsigned num_matches;
+	int wanted_match; /* signed! */
+	int num_matches;
 	regex_t pattern;
 	smallint pattern_valid;
 #endif
 	smallint terminated;
 	struct termios term_orig, term_less;
+	char kbd_input[KEYCODE_BUFFER_SIZE];
 };
 #define G (*ptr_to_globals)
 #define cur_fline           (G.cur_fline         )
 #define kbd_fd              (G.kbd_fd            )
-#define linepos             (G.linepos           )
-#define max_displayed_line  (G.max_displayed_line)
+#define less_gets_pos       (G.less_gets_pos     )
+#define last_line_pos       (G.last_line_pos     )
 #define max_fline           (G.max_fline         )
 #define max_lineno          (G.max_lineno        )
+#define max_displayed_line  (G.max_displayed_line)
 #define width               (G.width             )
+#define winch_counter       (G.winch_counter     )
+/* This one is 100% not cached by compiler on read access */
+#define WINCH_COUNTER (*(volatile unsigned *)&winch_counter)
 #define eof_error           (G.eof_error         )
 #define readpos             (G.readpos           )
 #define readeof             (G.readeof           )
@@ -144,37 +127,38 @@ struct globals {
 #define match_lines         (G.match_lines       )
 #define match_pos           (G.match_pos         )
 #define num_matches         (G.num_matches       )
+#define wanted_match        (G.wanted_match      )
 #define pattern             (G.pattern           )
 #define pattern_valid       (G.pattern_valid     )
 #endif
 #define terminated          (G.terminated        )
 #define term_orig           (G.term_orig         )
 #define term_less           (G.term_less         )
+#define kbd_input           (G.kbd_input         )
 #define INIT_G() do { \
-		PTR_TO_GLOBALS = xzalloc(sizeof(G)); \
-		empty_line_marker = "~"; \
-		num_files = 1; \
-		current_file = 1; \
-		eof_error = 1; \
-		terminated = 1; \
-	} while (0)
+	SET_PTR_TO_GLOBALS(xzalloc(sizeof(G))); \
+	less_gets_pos = -1; \
+	empty_line_marker = "~"; \
+	num_files = 1; \
+	current_file = 1; \
+	eof_error = 1; \
+	terminated = 1; \
+	IF_FEATURE_LESS_REGEXP(wanted_match = -1;) \
+} while (0)
+
+/* flines[] are lines read from stdin, each in malloc'ed buffer.
+ * Line numbers are stored as uint32_t prepended to each line.
+ * Pointer is adjusted so that flines[i] points directly past
+ * line number. Accesor: */
+#define MEMPTR(p) ((char*)(p) - 4)
+#define LINENO(p) (*(uint32_t*)((p) - 4))
+
 
 /* Reset terminal input to normal */
 static void set_tty_cooked(void)
 {
-	fflush(stdout);
+	fflush_all();
 	tcsetattr(kbd_fd, TCSANOW, &term_orig);
-}
-
-/* Exit the program gracefully */
-static void less_exit(int code)
-{
-	/* TODO: We really should save the terminal state when we start,
-	 * and restore it when we exit. Less does this with the
-	 * "ti" and "te" termcap commands; can this be done with
-	 * only termios.h? */
-	bb_putchar('\n');
-	fflush_stdout_and_exit(code);
 }
 
 /* Move the cursor to a position (x,y), where (0,0) is the
@@ -199,6 +183,102 @@ static void print_statusline(const char *str)
 	clear_line();
 	printf(HIGHLIGHT"%.*s"NORMAL, width - 1, str);
 }
+
+/* Exit the program gracefully */
+static void less_exit(int code)
+{
+	set_tty_cooked();
+	clear_line();
+	if (code < 0)
+		kill_myself_with_sig(- code); /* does not return */
+	exit(code);
+}
+
+#if (ENABLE_FEATURE_LESS_DASHCMD && ENABLE_FEATURE_LESS_LINENUMS) \
+ || ENABLE_FEATURE_LESS_WINCH
+static void re_wrap(void)
+{
+	int w = width;
+	int new_line_pos;
+	int src_idx;
+	int dst_idx;
+	int new_cur_fline = 0;
+	uint32_t lineno;
+	char linebuf[w + 1];
+	const char **old_flines = flines;
+	const char *s;
+	char **new_flines = NULL;
+	char *d;
+
+	if (option_mask32 & FLAG_N)
+		w -= 8;
+
+	src_idx = 0;
+	dst_idx = 0;
+	s = old_flines[0];
+	lineno = LINENO(s);
+	d = linebuf;
+	new_line_pos = 0;
+	while (1) {
+		*d = *s;
+		if (*d != '\0') {
+			new_line_pos++;
+			if (*d == '\t') /* tab */
+				new_line_pos += 7;
+			s++;
+			d++;
+			if (new_line_pos >= w) {
+				int sz;
+				/* new line is full, create next one */
+				*d = '\0';
+ next_new:
+				sz = (d - linebuf) + 1; /* + 1: NUL */
+				d = ((char*)xmalloc(sz + 4)) + 4;
+				LINENO(d) = lineno;
+				memcpy(d, linebuf, sz);
+				new_flines = xrealloc_vector(new_flines, 8, dst_idx);
+				new_flines[dst_idx] = d;
+				dst_idx++;
+				if (new_line_pos < w) {
+					/* if we came here thru "goto next_new" */
+					if (src_idx > max_fline)
+						break;
+					lineno = LINENO(s);
+				}
+				d = linebuf;
+				new_line_pos = 0;
+			}
+			continue;
+		}
+		/* *d == NUL: old line ended, go to next old one */
+		free(MEMPTR(old_flines[src_idx]));
+		/* btw, convert cur_fline... */
+		if (cur_fline == src_idx)
+			new_cur_fline = dst_idx;
+		src_idx++;
+		/* no more lines? finish last new line (and exit the loop) */
+		if (src_idx > max_fline)
+			goto next_new;
+		s = old_flines[src_idx];
+		if (lineno != LINENO(s)) {
+			/* this is not a continuation line!
+			 * create next _new_ line too */
+			goto next_new;
+		}
+	}
+
+	free(old_flines);
+	flines = (const char **)new_flines;
+
+	max_fline = dst_idx - 1;
+	last_line_pos = new_line_pos;
+	cur_fline = new_cur_fline;
+	/* max_lineno is screen-size independent */
+#if ENABLE_FEATURE_LESS_REGEXP
+	pattern_valid = 0;
+#endif
+}
+#endif
 
 #if ENABLE_FEATURE_LESS_REGEXP
 static void fill_match_lines(unsigned pos);
@@ -225,7 +305,7 @@ static void fill_match_lines(unsigned pos);
  *      on line wrap, only on "real" new lines.
  * readbuf[0..readeof-1] - small preliminary buffer.
  * readbuf[readpos] - next character to add to current line.
- * linepos - screen line position of next char to be read
+ * last_line_pos - screen line position of next char to be read
  *      (takes into account tabs and backspaces)
  * eof_error - < 0 error, == 0 EOF, > 0 not EOF/error
  */
@@ -233,141 +313,153 @@ static void read_lines(void)
 {
 #define readbuf bb_common_bufsiz1
 	char *current_line, *p;
-	USE_FEATURE_LESS_REGEXP(unsigned old_max_fline = max_fline;)
 	int w = width;
 	char last_terminated = terminated;
+#if ENABLE_FEATURE_LESS_REGEXP
+	unsigned old_max_fline = max_fline;
+	time_t last_time = 0;
+	unsigned seconds_p1 = 3; /* seconds_to_loop + 1 */
+#endif
 
 	if (option_mask32 & FLAG_N)
 		w -= 8;
 
-	current_line = xmalloc(w);
-	p = current_line;
+ IF_FEATURE_LESS_REGEXP(again0:)
+
+	p = current_line = ((char*)xmalloc(w + 4)) + 4;
 	max_fline += last_terminated;
 	if (!last_terminated) {
 		const char *cp = flines[max_fline];
-		if (option_mask32 & FLAG_N)
-			cp += 8;
-		strcpy(current_line, cp);
+		strcpy(p, cp);
 		p += strlen(current_line);
-		/* linepos is still valid from previous read_lines() */
+		free(MEMPTR(flines[max_fline]));
+		/* last_line_pos is still valid from previous read_lines() */
 	} else {
-		linepos = 0;
+		last_line_pos = 0;
 	}
 
-	while (1) {
- again:
+	while (1) { /* read lines until we reach cur_fline or wanted_match */
 		*p = '\0';
 		terminated = 0;
-		while (1) {
+		while (1) { /* read chars until we have a line */
 			char c;
 			/* if no unprocessed chars left, eat more */
 			if (readpos >= readeof) {
-				smallint yielded = 0;
-
 				ndelay_on(0);
- read_again:
-				eof_error = safe_read(0, readbuf, sizeof(readbuf));
+				eof_error = safe_read(STDIN_FILENO, readbuf, sizeof(readbuf));
+				ndelay_off(0);
 				readpos = 0;
 				readeof = eof_error;
-				if (eof_error < 0) {
-					if (errno == EAGAIN && !yielded) {
-			/* We can hit EAGAIN while searching for regexp match.
-			 * Yield is not 100% reliable solution in general,
-			 * but for less it should be good enough -
-			 * we give stdin supplier some CPU time to produce
-			 * more input. We do it just once.
-			 * Currently, we do not stop when we found the Nth
-			 * occurrence we were looking for. We read till end
-			 * (or double EAGAIN). TODO? */
-						sched_yield();
-						yielded = 1;
-						goto read_again;
-					}
-					readeof = 0;
-					if (errno != EAGAIN)
-						print_statusline("read error");
-				}
-				ndelay_off(0);
-
-				if (eof_error <= 0) {
+				if (eof_error <= 0)
 					goto reached_eof;
-				}
 			}
 			c = readbuf[readpos];
 			/* backspace? [needed for manpages] */
 			/* <tab><bs> is (a) insane and */
 			/* (b) harder to do correctly, so we refuse to do it */
-			if (c == '\x8' && linepos && p[-1] != '\t') {
+			if (c == '\x8' && last_line_pos && p[-1] != '\t') {
 				readpos++; /* eat it */
-				linepos--;
+				last_line_pos--;
 			/* was buggy (p could end up <= current_line)... */
 				*--p = '\0';
 				continue;
 			}
 			{
-				size_t new_linepos = linepos + 1;
+				size_t new_last_line_pos = last_line_pos + 1;
 				if (c == '\t') {
-					new_linepos += 7;
-					new_linepos &= (~7);
+					new_last_line_pos += 7;
+					new_last_line_pos &= (~7);
 				}
-				if (new_linepos >= w)
+				if ((int)new_last_line_pos >= w)
 					break;
-				linepos = new_linepos;
+				last_line_pos = new_last_line_pos;
 			}
 			/* ok, we will eat this char */
 			readpos++;
 			if (c == '\n') {
 				terminated = 1;
-				linepos = 0;
+				last_line_pos = 0;
 				break;
 			}
 			/* NUL is substituted by '\n'! */
 			if (c == '\0') c = '\n';
 			*p++ = c;
 			*p = '\0';
-		}
+		} /* end of "read chars until we have a line" loop */
 		/* Corner case: linewrap with only "" wrapping to next line */
 		/* Looks ugly on screen, so we do not store this empty line */
 		if (!last_terminated && !current_line[0]) {
 			last_terminated = 1;
 			max_lineno++;
-			goto again;
+			continue;
 		}
  reached_eof:
 		last_terminated = terminated;
-		flines = xrealloc(flines, (max_fline+1) * sizeof(char *));
-		if (option_mask32 & FLAG_N) {
-			/* Width of 7 preserves tab spacing in the text */
-			flines[max_fline] = xasprintf(
-				(max_lineno <= 9999999) ? "%7u %s" : "%07u %s",
-				max_lineno % 10000000, current_line);
-			free(current_line);
-			if (terminated)
-				max_lineno++;
-		} else {
-			flines[max_fline] = xrealloc(current_line, strlen(current_line)+1);
-		}
+		flines = xrealloc_vector(flines, 8, max_fline);
+
+		flines[max_fline] = (char*)xrealloc(MEMPTR(current_line), strlen(current_line) + 1 + 4) + 4;
+		LINENO(flines[max_fline]) = max_lineno;
+		if (terminated)
+			max_lineno++;
+
 		if (max_fline >= MAXLINES) {
 			eof_error = 0; /* Pretend we saw EOF */
 			break;
 		}
-		if (max_fline > cur_fline + max_displayed_line)
+		if (!(option_mask32 & FLAG_S)
+		  ? (max_fline > cur_fline + max_displayed_line)
+		  : (max_fline >= cur_fline
+		     && max_lineno > LINENO(flines[cur_fline]) + max_displayed_line)
+		) {
+#if !ENABLE_FEATURE_LESS_REGEXP
 			break;
-		if (eof_error <= 0) {
-			if (eof_error < 0 && errno == EAGAIN) {
-				/* not yet eof or error, reset flag (or else
-				 * we will hog CPU - select() will return
-				 * immediately */
-				eof_error = 1;
+#else
+			if (wanted_match >= num_matches) { /* goto_match called us */
+				fill_match_lines(old_max_fline);
+				old_max_fline = max_fline;
 			}
+			if (wanted_match < num_matches)
+				break;
+#endif
+		}
+		if (eof_error <= 0) {
+			if (eof_error < 0) {
+				if (errno == EAGAIN) {
+					/* not yet eof or error, reset flag (or else
+					 * we will hog CPU - select() will return
+					 * immediately */
+					eof_error = 1;
+				} else {
+					print_statusline("read error");
+				}
+			}
+#if !ENABLE_FEATURE_LESS_REGEXP
 			break;
+#else
+			if (wanted_match < num_matches) {
+				break;
+			} else { /* goto_match called us */
+				time_t t = time(NULL);
+				if (t != last_time) {
+					last_time = t;
+					if (--seconds_p1 == 0)
+						break;
+				}
+				sched_yield();
+				goto again0; /* go loop again (max 2 seconds) */
+			}
+#endif
 		}
 		max_fline++;
-		current_line = xmalloc(w);
+		current_line = ((char*)xmalloc(w + 4)) + 4;
 		p = current_line;
-		linepos = 0;
-	}
+		last_line_pos = 0;
+	} /* end of "read lines until we reach cur_fline" loop */
 	fill_match_lines(old_max_fline);
+#if ENABLE_FEATURE_LESS_REGEXP
+	/* prevent us from being stuck in search for a match */
+	wanted_match = -1;
+#endif
 #undef readbuf
 }
 
@@ -385,6 +477,9 @@ static void m_status_print(void)
 {
 	int percentage;
 
+	if (less_gets_pos >= 0)	/* don't touch statusline while input is done! */
+		return;
+
 	clear_line();
 	printf(HIGHLIGHT"%s", filename);
 	if (num_files > 1)
@@ -392,7 +487,7 @@ static void m_status_print(void)
 	printf(" lines %i-%i/%i ",
 			cur_fline + 1, cur_fline + max_displayed_line + 1,
 			max_fline + 1);
-	if (cur_fline >= max_fline - max_displayed_line) {
+	if (cur_fline >= (int)(max_fline - max_displayed_line)) {
 		printf("(END)"NORMAL);
 		if (num_files > 1 && current_file != num_files)
 			printf(HIGHLIGHT" - next: %s"NORMAL, files[current_file]);
@@ -408,6 +503,9 @@ static void status_print(void)
 {
 	const char *p;
 
+	if (less_gets_pos >= 0)	/* don't touch statusline while input is done! */
+		return;
+
 	/* Change the status if flags have been set */
 #if ENABLE_FEATURE_LESS_FLAGS
 	if (option_mask32 & (FLAG_M|FLAG_m)) {
@@ -418,7 +516,7 @@ static void status_print(void)
 #endif
 
 	clear_line();
-	if (cur_fline && cur_fline < max_fline - max_displayed_line) {
+	if (cur_fline && cur_fline < (int)(max_fline - max_displayed_line)) {
 		bb_putchar(':');
 		return;
 	}
@@ -444,7 +542,7 @@ static void cap_cur_fline(int nlines)
 			cur_fline = 0;
 		diff = max_fline - (cur_fline + max_displayed_line) + TILDES;
 		/* As the number of lines requested was too large, we just move
-		to the end of the file */
+		 * to the end of the file */
 		if (diff > 0)
 			cur_fline += diff;
 	}
@@ -456,9 +554,34 @@ static const char controls[] ALIGN1 =
 	"\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f"
 	"\x7f\x9b"; /* DEL and infamous Meta-ESC :( */
 static const char ctrlconv[] ALIGN1 =
-	/* '\n': it's a former NUL - subst with '@', not 'J' */
+	/* why 40 instead of 4a below? - it is a replacement for '\n'.
+	 * '\n' is a former NUL - we subst it with @, not J */
 	"\x40\x41\x42\x43\x44\x45\x46\x47\x48\x49\x40\x4b\x4c\x4d\x4e\x4f"
 	"\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5a\x5b\x5c\x5d\x5e\x5f";
+
+static void lineno_str(char *nbuf9, const char *line)
+{
+	nbuf9[0] = '\0';
+	if (option_mask32 & FLAG_N) {
+		const char *fmt;
+		unsigned n;
+
+		if (line == empty_line_marker) {
+			memset(nbuf9, ' ', 8);
+			nbuf9[8] = '\0';
+			return;
+		}
+		/* Width of 7 preserves tab spacing in the text */
+		fmt = "%7u ";
+		n = LINENO(line) + 1;
+		if (n > 9999999) {
+			n %= 10000000;
+			fmt = "%07u ";
+		}
+		sprintf(nbuf9, fmt, n);
+	}
+}
+
 
 #if ENABLE_FEATURE_LESS_REGEXP
 static void print_found(const char *line)
@@ -469,6 +592,7 @@ static void print_found(const char *line)
 	regmatch_t match_structs;
 
 	char buf[width];
+	char nbuf9[9];
 	const char *str = line;
 	char *p = buf;
 	size_t n;
@@ -501,24 +625,29 @@ static void print_found(const char *line)
 
 	while (match_status == 0) {
 		char *new = xasprintf("%s%.*s"HIGHLIGHT"%.*s"NORMAL,
-				growline ? : "",
+				growline ? growline : "",
 				match_structs.rm_so, str,
 				match_structs.rm_eo - match_structs.rm_so,
 						str + match_structs.rm_so);
-		free(growline); growline = new;
+		free(growline);
+		growline = new;
 		str += match_structs.rm_eo;
 		line += match_structs.rm_eo;
 		eflags = REG_NOTBOL;
  start:
 		/* Most of the time doesn't find the regex, optimize for that */
 		match_status = regexec(&pattern, line, 1, &match_structs, eflags);
+		/* if even "" matches, treat it as "not a match" */
+		if (match_structs.rm_so >= match_structs.rm_eo)
+			match_status = 1;
 	}
 
+	lineno_str(nbuf9, line);
 	if (!growline) {
-		printf(CLEAR_2_EOL"%s\n", str);
+		printf(CLEAR_2_EOL"%s%s\n", nbuf9, str);
 		return;
 	}
-	printf(CLEAR_2_EOL"%s%s\n", growline, str);
+	printf(CLEAR_2_EOL"%s%s%s\n", nbuf9, growline, str);
 	free(growline);
 }
 #else
@@ -528,10 +657,13 @@ void print_found(const char *line);
 static void print_ascii(const char *str)
 {
 	char buf[width];
+	char nbuf9[9];
 	char *p;
 	size_t n;
 
-	printf(CLEAR_2_EOL);
+	lineno_str(nbuf9, str);
+	printf(CLEAR_2_EOL"%s", nbuf9);
+
 	while (*str) {
 		n = strcspn(str, controls);
 		if (n) {
@@ -561,7 +693,7 @@ static void print_ascii(const char *str)
 /* Print the buffer */
 static void buffer_print(void)
 {
-	int i;
+	unsigned i;
 
 	move_cursor(0, 0);
 	for (i = 0; i <= max_displayed_line; i++)
@@ -574,10 +706,33 @@ static void buffer_print(void)
 
 static void buffer_fill_and_print(void)
 {
-	int i;
+	unsigned i;
+#if ENABLE_FEATURE_LESS_DASHCMD
+	int fpos = cur_fline;
+
+	if (option_mask32 & FLAG_S) {
+		/* Go back to the beginning of this line */
+		while (fpos && LINENO(flines[fpos]) == LINENO(flines[fpos-1]))
+			fpos--;
+	}
+
+	i = 0;
+	while (i <= max_displayed_line && fpos <= max_fline) {
+		int lineno = LINENO(flines[fpos]);
+		buffer[i] = flines[fpos];
+		i++;
+		do {
+			fpos++;
+		} while ((fpos <= max_fline)
+		      && (option_mask32 & FLAG_S)
+		      && lineno == LINENO(flines[fpos])
+		);
+	}
+#else
 	for (i = 0; i <= max_displayed_line && cur_fline + i <= max_fline; i++) {
 		buffer[i] = flines[cur_fline + i];
 	}
+#endif
 	for (; i <= max_displayed_line; i++) {
 		buffer[i] = empty_line_marker;
 	}
@@ -618,9 +773,7 @@ static void buffer_line(int linenum)
 static void open_file_and_read_lines(void)
 {
 	if (filename) {
-		int fd = xopen(filename, O_RDONLY);
-		dup2(fd, 0);
-		if (fd) close(fd);
+		xmove_fd(xopen(filename, O_RDONLY), STDIN_FILENO);
 	} else {
 		/* "less" with no arguments in argv[] */
 		/* For status line only */
@@ -628,7 +781,7 @@ static void open_file_and_read_lines(void)
 	}
 	readpos = 0;
 	readeof = 0;
-	linepos = 0;
+	last_line_pos = 0;
 	terminated = 1;
 	read_lines();
 }
@@ -636,11 +789,11 @@ static void open_file_and_read_lines(void)
 /* Reinitialize everything for a new file - free the memory and start over */
 static void reinitialize(void)
 {
-	int i;
+	unsigned i;
 
 	if (flines) {
 		for (i = 0; i <= max_fline; i++)
-			free((void*)(flines[i]));
+			free(MEMPTR(flines[i]));
 		free(flines);
 		flines = NULL;
 	}
@@ -652,121 +805,139 @@ static void reinitialize(void)
 	buffer_fill_and_print();
 }
 
-static void getch_nowait(char* input, int sz)
+static int getch_nowait(void)
 {
-	ssize_t rd;
-	fd_set readfds;
- again:
-	fflush(stdout);
+	int rd;
+	struct pollfd pfd[2];
 
-	/* NB: select returns whenever read will not block. Therefore:
-	 * (a) with O_NONBLOCK'ed fds select will return immediately
-	 * (b) if eof is reached, select will also return
-	 *     because read will immediately return 0 bytes.
-	 * Even if select says that input is available, read CAN block
+	pfd[0].fd = STDIN_FILENO;
+	pfd[0].events = POLLIN;
+	pfd[1].fd = kbd_fd;
+	pfd[1].events = POLLIN;
+ again:
+	tcsetattr(kbd_fd, TCSANOW, &term_less);
+	/* NB: select/poll returns whenever read will not block. Therefore:
+	 * if eof is reached, select/poll will return immediately
+	 * because read will immediately return 0 bytes.
+	 * Even if select/poll says that input is available, read CAN block
 	 * (switch fd into O_NONBLOCK'ed mode to avoid it)
 	 */
-	FD_ZERO(&readfds);
-	if (max_fline <= cur_fline + max_displayed_line
-	 && eof_error > 0 /* did NOT reach eof yet */
+	rd = 1;
+	/* Are we interested in stdin? */
+//TODO: reuse code for determining this
+	if (!(option_mask32 & FLAG_S)
+	   ? !(max_fline > cur_fline + max_displayed_line)
+	   : !(max_fline >= cur_fline
+	       && max_lineno > LINENO(flines[cur_fline]) + max_displayed_line)
 	) {
-		/* We are interested in stdin */
-		FD_SET(0, &readfds);
+		if (eof_error > 0) /* did NOT reach eof yet */
+			rd = 0; /* yes, we are interested in stdin */
 	}
-	FD_SET(kbd_fd, &readfds);
-	tcsetattr(kbd_fd, TCSANOW, &term_less);
-	select(kbd_fd + 1, &readfds, NULL, NULL, NULL);
+	/* Position cursor if line input is done */
+	if (less_gets_pos >= 0)
+		move_cursor(max_displayed_line + 2, less_gets_pos + 1);
+	fflush_all();
 
-	input[0] = '\0';
-	ndelay_on(kbd_fd);
-	rd = read(kbd_fd, input, sz);
-	ndelay_off(kbd_fd);
-	if (rd < 0) {
-		/* No keyboard input, but we have input on stdin! */
-		if (errno != EAGAIN) /* Huh?? */
-			return;
-		read_lines();
-		buffer_fill_and_print();
-		goto again;
+	if (kbd_input[0] == 0) { /* if nothing is buffered */
+#if ENABLE_FEATURE_LESS_WINCH
+		while (1) {
+			int r;
+			/* NB: SIGWINCH interrupts poll() */
+			r = poll(pfd + rd, 2 - rd, -1);
+			if (/*r < 0 && errno == EINTR &&*/ winch_counter)
+				return '\\'; /* anything which has no defined function */
+			if (r) break;
+		}
+#else
+		safe_poll(pfd + rd, 2 - rd, -1);
+#endif
 	}
+
+	/* We have kbd_fd in O_NONBLOCK mode, read inside read_key()
+	 * would not block even if there is no input available */
+	rd = read_key(kbd_fd, kbd_input, /*timeout off:*/ -2);
+	if (rd == -1) {
+		if (errno == EAGAIN) {
+			/* No keyboard input available. Since poll() did return,
+			 * we should have input on stdin */
+			read_lines();
+			buffer_fill_and_print();
+			goto again;
+		}
+		/* EOF/error (ssh session got killed etc) */
+		less_exit(0);
+	}
+	set_tty_cooked();
+	return rd;
 }
 
-/* Grab a character from input without requiring the return key. If the
- * character is ASCII \033, get more characters and assign certain sequences
- * special return codes. Note that this function works best with raw input. */
-static int less_getch(void)
+/* Grab a character from input without requiring the return key.
+ * May return KEYCODE_xxx values.
+ * Note that this function works best with raw input. */
+static int less_getch(int pos)
 {
-	char input[16];
-	unsigned i;
- again:
-	memset(input, 0, sizeof(input));
-	getch_nowait(input, sizeof(input));
+	int i;
 
-	/* Detect escape sequences (i.e. arrow keys) and handle
-	 * them accordingly */
-	if (input[0] == '\033' && input[1] == '[') {
-		set_tty_cooked();
-		i = input[2] - REAL_KEY_UP;
-		if (i < 4)
-			return 20 + i;
-		i = input[2] - REAL_PAGE_UP;
-		if (i < 4)
-			return 24 + i;
-		if (input[2] == REAL_KEY_HOME_XTERM)
-			return KEY_HOME;
-		if (input[2] == REAL_KEY_HOME_ALT)
-			return KEY_HOME;
-		if (input[2] == REAL_KEY_END_XTERM)
-			return KEY_END;
-		if (input[2] == REAL_KEY_END_ALT)
-			return KEY_END;
-		return 0;
-	}
-	/* Reject almost all control chars */
-	i = input[0];
-	if (i < ' ' && i != 0x0d && i != 8) goto again;
-	set_tty_cooked();
+ again:
+	less_gets_pos = pos;
+	i = getch_nowait();
+	less_gets_pos = -1;
+
+	/* Discard Ctrl-something chars */
+	if (i >= 0 && i < ' ' && i != 0x0d && i != 8)
+		goto again;
 	return i;
 }
 
 static char* less_gets(int sz)
 {
-	char c;
-	int i = 0;
+	int c;
+	unsigned i = 0;
 	char *result = xzalloc(1);
+
 	while (1) {
-		fflush(stdout);
-
-		/* I be damned if I know why is it needed *repeatedly*,
-		 * but it is needed. Is it because of stdio? */
-		tcsetattr(kbd_fd, TCSANOW, &term_less);
-
 		c = '\0';
-		read(kbd_fd, &c, 1);
-		if (c == 0x0d)
+		less_gets_pos = sz + i;
+		c = getch_nowait();
+		if (c == 0x0d) {
+			result[i] = '\0';
+			less_gets_pos = -1;
 			return result;
+		}
 		if (c == 0x7f)
 			c = 8;
 		if (c == 8 && i) {
 			printf("\x8 \x8");
 			i--;
 		}
-		if (c < ' ')
+		if (c < ' ') /* filters out KEYCODE_xxx too (<0) */
 			continue;
 		if (i >= width - sz - 1)
 			continue; /* len limit */
 		bb_putchar(c);
 		result[i++] = c;
 		result = xrealloc(result, i+1);
-		result[i] = '\0';
 	}
 }
 
 static void examine_file(void)
 {
+	char *new_fname;
+
 	print_statusline("Examine: ");
+	new_fname = less_gets(sizeof("Examine: ") - 1);
+	if (!new_fname[0]) {
+		status_print();
+ err:
+		free(new_fname);
+		return;
+	}
+	if (access(new_fname, R_OK) != 0) {
+		print_statusline("Cannot read this file");
+		goto err;
+	}
 	free(filename);
-	filename = less_gets(sizeof("Examine: ")-1);
+	filename = new_fname;
 	/* files start by = argv. why we assume that argv is infinitely long??
 	files[num_files] = filename;
 	current_file = num_files + 1;
@@ -794,7 +965,7 @@ static void change_file(int direction)
 
 static void remove_current_file(void)
 {
-	int i;
+	unsigned i;
 
 	if (num_files < 2)
 		return;
@@ -820,7 +991,7 @@ static void colon_process(void)
 	/* Clear the current line and print a prompt */
 	print_statusline(" :");
 
-	keypress = less_getch();
+	keypress = less_getch(2);
 	switch (keypress) {
 	case 'd':
 		remove_current_file();
@@ -840,7 +1011,7 @@ static void colon_process(void)
 		change_file(-1);
 		break;
 	case 'q':
-		less_exit(0);
+		less_exit(EXIT_SUCCESS);
 		break;
 	case 'x':
 		change_file(0);
@@ -860,24 +1031,19 @@ static void normalize_match_pos(int match)
 
 static void goto_match(int match)
 {
-	int sv;
-
 	if (!pattern_valid)
 		return;
 	if (match < 0)
 		match = 0;
-	sv = cur_fline;
 	/* Try to find next match if eof isn't reached yet */
 	if (match >= num_matches && eof_error > 0) {
-		cur_fline = MAXLINES; /* look as far as needed */
+		wanted_match = match; /* "I want to read until I see N'th match" */
 		read_lines();
 	}
 	if (num_matches) {
-		cap_cur_fline(cur_fline);
 		normalize_match_pos(match);
 		buffer_line(match_lines[match_pos]);
 	} else {
-		cur_fline = sv;
 		print_statusline("No matches found");
 	}
 }
@@ -893,7 +1059,7 @@ static void fill_match_lines(unsigned pos)
 		/* and we didn't match it last time */
 		 && !(num_matches && match_lines[num_matches-1] == pos)
 		) {
-			match_lines = xrealloc(match_lines, (num_matches+1) * sizeof(int));
+			match_lines = xrealloc_vector(match_lines, 4, num_matches);
 			match_lines[num_matches++] = pos;
 		}
 		pos++;
@@ -925,7 +1091,8 @@ static void regex_process(void)
 	}
 
 	/* Compile the regex and check for errors */
-	err = regcomp_or_errmsg(&pattern, uncomp_regex, 0);
+	err = regcomp_or_errmsg(&pattern, uncomp_regex,
+				(option_mask32 & FLAG_I) ? REG_ICASE : 0);
 	free(uncomp_regex);
 	if (err) {
 		print_statusline(err);
@@ -937,7 +1104,7 @@ static void regex_process(void)
 	match_pos = 0;
 	fill_match_lines(0);
 	while (match_pos < num_matches) {
-		if (match_lines[match_pos] > cur_fline)
+		if ((int)match_lines[match_pos] > cur_fline)
 			break;
 		match_pos++;
 	}
@@ -953,10 +1120,10 @@ static void regex_process(void)
 
 static void number_process(int first_digit)
 {
-	int i = 1;
+	unsigned i;
 	int num;
+	int keypress;
 	char num_input[sizeof(int)*4]; /* more than enough */
-	char keypress;
 
 	num_input[0] = first_digit;
 
@@ -965,16 +1132,16 @@ static void number_process(int first_digit)
 	printf(":%c", first_digit);
 
 	/* Receive input until a letter is given */
+	i = 1;
 	while (i < sizeof(num_input)-1) {
-		num_input[i] = less_getch();
-		if (!num_input[i] || !isdigit(num_input[i]))
+		keypress = less_getch(i + 1);
+		if ((unsigned)keypress > 255 || !isdigit(num_input[i]))
 			break;
-		bb_putchar(num_input[i]);
+		num_input[i] = keypress;
+		bb_putchar(keypress);
 		i++;
 	}
 
-	/* Take the final letter out of the digits string */
-	keypress = num_input[i];
 	num_input[i] = '\0';
 	num = bb_strtou(num_input, NULL, 10);
 	/* on format error, num == -1 */
@@ -985,10 +1152,10 @@ static void number_process(int first_digit)
 
 	/* We now know the number and the letter entered, so we process them */
 	switch (keypress) {
-	case KEY_DOWN: case 'z': case 'd': case 'e': case ' ': case '\015':
+	case KEYCODE_DOWN: case 'z': case 'd': case 'e': case ' ': case '\015':
 		buffer_down(num);
 		break;
-	case KEY_UP: case 'b': case 'w': case 'y': case 'u':
+	case KEYCODE_UP: case 'b': case 'w': case 'y': case 'u':
 		buffer_up(num);
 		break;
 	case 'g': case '<': case 'G': case '>':
@@ -1018,14 +1185,14 @@ static void number_process(int first_digit)
 	}
 }
 
-#if ENABLE_FEATURE_LESS_FLAGCS
+#if ENABLE_FEATURE_LESS_DASHCMD
 static void flag_change(void)
 {
 	int keypress;
 
 	clear_line();
 	bb_putchar('-');
-	keypress = less_getch();
+	keypress = less_getch(1);
 
 	switch (keypress) {
 	case 'M':
@@ -1040,9 +1207,21 @@ static void flag_change(void)
 	case '~':
 		option_mask32 ^= FLAG_TILDE;
 		break;
+	case 'S':
+		option_mask32 ^= FLAG_S;
+		buffer_fill_and_print();
+		break;
+#if ENABLE_FEATURE_LESS_LINENUMS
+	case 'N':
+		option_mask32 ^= FLAG_N;
+		re_wrap();
+		buffer_fill_and_print();
+		break;
+#endif
 	}
 }
 
+#ifdef BLOAT
 static void show_flag_status(void)
 {
 	int keypress;
@@ -1050,7 +1229,7 @@ static void show_flag_status(void)
 
 	clear_line();
 	bb_putchar('_');
-	keypress = less_getch();
+	keypress = less_getch(1);
 
 	switch (keypress) {
 	case 'M':
@@ -1078,17 +1257,19 @@ static void show_flag_status(void)
 }
 #endif
 
+#endif /* ENABLE_FEATURE_LESS_DASHCMD */
+
 static void save_input_to_file(void)
 {
 	const char *msg = "";
 	char *current_line;
-	int i;
+	unsigned i;
 	FILE *fp;
 
 	print_statusline("Log file: ");
 	current_line = less_gets(sizeof("Log file: ")-1);
-	if (strlen(current_line) > 0) {
-		fp = fopen(current_line, "w");
+	if (current_line[0]) {
+		fp = fopen_for_write(current_line);
 		if (!fp) {
 			msg = "Error opening log file";
 			goto ret;
@@ -1109,7 +1290,7 @@ static void add_mark(void)
 	int letter;
 
 	print_statusline("Mark: ");
-	letter = less_getch();
+	letter = less_getch(sizeof("Mark: ") - 1);
 
 	if (isalpha(letter)) {
 		/* If we exceed 15 marks, start overwriting previous ones */
@@ -1130,7 +1311,7 @@ static void goto_mark(void)
 	int i;
 
 	print_statusline("Go to mark: ");
-	letter = less_getch();
+	letter = less_getch(sizeof("Go to mark: ") - 1);
 	clear_line();
 
 	if (isalpha(letter)) {
@@ -1150,41 +1331,40 @@ static void goto_mark(void)
 static char opp_bracket(char bracket)
 {
 	switch (bracket) {
-	case '{': case '[':
-		return bracket + 2;
-	case '(':
-		return ')';
-	case '}': case ']':
-		return bracket - 2;
-	case ')':
-		return '(';
-	}
-	return 0;
+		case '{': case '[': /* '}' == '{' + 2. Same for '[' */
+			bracket++;
+		case '(':           /* ')' == '(' + 1 */
+			bracket++;
+			break;
+		case '}': case ']':
+			bracket--;
+		case ')':
+			bracket--;
+			break;
+	};
+	return bracket;
 }
 
 static void match_right_bracket(char bracket)
 {
-	int bracket_line = -1;
-	int i;
+	unsigned i;
 
 	if (strchr(flines[cur_fline], bracket) == NULL) {
 		print_statusline("No bracket in top line");
 		return;
 	}
+	bracket = opp_bracket(bracket);
 	for (i = cur_fline + 1; i < max_fline; i++) {
-		if (strchr(flines[i], opp_bracket(bracket)) != NULL) {
-			bracket_line = i;
-			break;
+		if (strchr(flines[i], bracket) != NULL) {
+			buffer_line(i);
+			return;
 		}
 	}
-	if (bracket_line == -1)
-		print_statusline("No matching bracket found");
-	buffer_line(bracket_line - max_displayed_line);
+	print_statusline("No matching bracket found");
 }
 
 static void match_left_bracket(char bracket)
 {
-	int bracket_line = -1;
 	int i;
 
 	if (strchr(flines[cur_fline + max_displayed_line], bracket) == NULL) {
@@ -1192,31 +1372,30 @@ static void match_left_bracket(char bracket)
 		return;
 	}
 
+	bracket = opp_bracket(bracket);
 	for (i = cur_fline + max_displayed_line; i >= 0; i--) {
-		if (strchr(flines[i], opp_bracket(bracket)) != NULL) {
-			bracket_line = i;
-			break;
+		if (strchr(flines[i], bracket) != NULL) {
+			buffer_line(i);
+			return;
 		}
 	}
-	if (bracket_line == -1)
-		print_statusline("No matching bracket found");
-	buffer_line(bracket_line);
+	print_statusline("No matching bracket found");
 }
 #endif  /* FEATURE_LESS_BRACKETS */
 
 static void keypress_process(int keypress)
 {
 	switch (keypress) {
-	case KEY_DOWN: case 'e': case 'j': case 0x0d:
+	case KEYCODE_DOWN: case 'e': case 'j': case 0x0d:
 		buffer_down(1);
 		break;
-	case KEY_UP: case 'y': case 'k':
+	case KEYCODE_UP: case 'y': case 'k':
 		buffer_up(1);
 		break;
-	case PAGE_DOWN: case ' ': case 'z': case 'f':
+	case KEYCODE_PAGEDOWN: case ' ': case 'z': case 'f':
 		buffer_down(max_displayed_line + 1);
 		break;
-	case PAGE_UP: case 'w': case 'b':
+	case KEYCODE_PAGEUP: case 'w': case 'b':
 		buffer_up(max_displayed_line + 1);
 		break;
 	case 'd':
@@ -1225,16 +1404,16 @@ static void keypress_process(int keypress)
 	case 'u':
 		buffer_up((max_displayed_line + 1) / 2);
 		break;
-	case KEY_HOME: case 'g': case 'p': case '<': case '%':
+	case KEYCODE_HOME: case 'g': case 'p': case '<': case '%':
 		buffer_line(0);
 		break;
-	case KEY_END: case 'G': case '>':
+	case KEYCODE_END: case 'G': case '>':
 		cur_fline = MAXLINES;
 		read_lines();
 		buffer_line(cur_fline);
 		break;
 	case 'q': case 'Q':
-		less_exit(0);
+		less_exit(EXIT_SUCCESS);
 		break;
 #if ENABLE_FEATURE_LESS_MARKS
 	case 'm':
@@ -1279,14 +1458,16 @@ static void keypress_process(int keypress)
 		regex_process();
 		break;
 #endif
-#if ENABLE_FEATURE_LESS_FLAGCS
+#if ENABLE_FEATURE_LESS_DASHCMD
 	case '-':
 		flag_change();
 		buffer_print();
 		break;
+#ifdef BLOAT
 	case '_':
 		show_flag_status();
 		break;
+#endif
 #endif
 #if ENABLE_FEATURE_LESS_BRACKETS
 	case '{': case '(': case '[':
@@ -1305,11 +1486,17 @@ static void keypress_process(int keypress)
 		number_process(keypress);
 }
 
-static void sig_catcher(int sig ATTRIBUTE_UNUSED)
+static void sig_catcher(int sig)
 {
-	set_tty_cooked();
-	exit(1);
+	less_exit(- sig);
 }
+
+#if ENABLE_FEATURE_LESS_WINCH
+static void sigwinch_handler(int sig UNUSED_PARAM)
+{
+	winch_counter++;
+}
+#endif
 
 int less_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int less_main(int argc, char **argv)
@@ -1321,7 +1508,7 @@ int less_main(int argc, char **argv)
 	/* TODO: -x: do not interpret backspace, -xx: tab also */
 	/* -xxx: newline also */
 	/* -w N: assume width N (-xxx -w 32: hex viewer of sorts) */
-	getopt32(argv, "EMmN~");
+	getopt32(argv, "EMmN~I" IF_FEATURE_LESS_DASHCMD("S"));
 	argc -= optind;
 	argv += optind;
 	num_files = argc;
@@ -1331,9 +1518,6 @@ int less_main(int argc, char **argv)
 	 * is not a tty and turns into cat. This makes sense. */
 	if (!isatty(STDOUT_FILENO))
 		return bb_cat(argv);
-	kbd_fd = open(CURRENT_TTY, O_RDONLY);
-	if (kbd_fd < 0)
-		return bb_cat(argv);
 
 	if (!num_files) {
 		if (isatty(STDIN_FILENO)) {
@@ -1341,22 +1525,19 @@ int less_main(int argc, char **argv)
 			bb_error_msg("missing filename");
 			bb_show_usage();
 		}
-	} else
+	} else {
 		filename = xstrdup(files[0]);
+	}
 
-	get_terminal_width_height(kbd_fd, &width, &max_displayed_line);
-	/* 20: two tabstops + 4 */
-	if (width < 20 || max_displayed_line < 3)
-		bb_error_msg_and_die("too narrow here");
-	max_displayed_line -= 2;
-
-	buffer = xmalloc((max_displayed_line+1) * sizeof(char *));
 	if (option_mask32 & FLAG_TILDE)
 		empty_line_marker = "";
 
+	kbd_fd = open(CURRENT_TTY, O_RDONLY);
+	if (kbd_fd < 0)
+		return bb_cat(argv);
+	ndelay_on(kbd_fd);
+
 	tcgetattr(kbd_fd, &term_orig);
-	signal(SIGTERM, sig_catcher);
-	signal(SIGINT, sig_catcher);
 	term_less = term_orig;
 	term_less.c_lflag &= ~(ICANON | ECHO);
 	term_less.c_iflag &= ~(IXON | ICRNL);
@@ -1364,13 +1545,254 @@ int less_main(int argc, char **argv)
 	term_less.c_cc[VMIN] = 1;
 	term_less.c_cc[VTIME] = 0;
 
-	/* Want to do it just once, but it doesn't work, */
-	/* so we are redoing it (see code above). Mystery... */
-	/*tcsetattr(kbd_fd, TCSANOW, &term_less);*/
+	get_terminal_width_height(kbd_fd, &width, &max_displayed_line);
+	/* 20: two tabstops + 4 */
+	if (width < 20 || max_displayed_line < 3)
+		return bb_cat(argv);
+	max_displayed_line -= 2;
 
+	/* We want to restore term_orig on exit */
+	bb_signals(BB_FATAL_SIGS, sig_catcher);
+#if ENABLE_FEATURE_LESS_WINCH
+	signal(SIGWINCH, sigwinch_handler);
+#endif
+
+	buffer = xmalloc((max_displayed_line+1) * sizeof(char *));
 	reinitialize();
 	while (1) {
-		keypress = less_getch();
+#if ENABLE_FEATURE_LESS_WINCH
+		while (WINCH_COUNTER) {
+ again:
+			winch_counter--;
+			get_terminal_width_height(kbd_fd, &width, &max_displayed_line);
+			/* 20: two tabstops + 4 */
+			if (width < 20)
+				width = 20;
+			if (max_displayed_line < 3)
+				max_displayed_line = 3;
+			max_displayed_line -= 2;
+			free(buffer);
+			buffer = xmalloc((max_displayed_line+1) * sizeof(char *));
+			/* Avoid re-wrap and/or redraw if we already know
+			 * we need to do it again. These ops are expensive */
+			if (WINCH_COUNTER)
+				goto again;
+			re_wrap();
+			if (WINCH_COUNTER)
+				goto again;
+			buffer_fill_and_print();
+			/* This took some time. Loop back and check,
+			 * were there another SIGWINCH? */
+		}
+#endif
+		keypress = less_getch(-1); /* -1: do not position cursor */
 		keypress_process(keypress);
 	}
 }
+
+/*
+Help text of less version 418 is below.
+If you are implementing something, keeping
+key and/or command line switch compatibility is a good idea:
+
+
+                   SUMMARY OF LESS COMMANDS
+
+      Commands marked with * may be preceded by a number, N.
+      Notes in parentheses indicate the behavior if N is given.
+  h  H                 Display this help.
+  q  :q  Q  :Q  ZZ     Exit.
+ ---------------------------------------------------------------------------
+                           MOVING
+  e  ^E  j  ^N  CR  *  Forward  one line   (or N lines).
+  y  ^Y  k  ^K  ^P  *  Backward one line   (or N lines).
+  f  ^F  ^V  SPACE  *  Forward  one window (or N lines).
+  b  ^B  ESC-v      *  Backward one window (or N lines).
+  z                 *  Forward  one window (and set window to N).
+  w                 *  Backward one window (and set window to N).
+  ESC-SPACE         *  Forward  one window, but don't stop at end-of-file.
+  d  ^D             *  Forward  one half-window (and set half-window to N).
+  u  ^U             *  Backward one half-window (and set half-window to N).
+  ESC-)  RightArrow *  Left  one half screen width (or N positions).
+  ESC-(  LeftArrow  *  Right one half screen width (or N positions).
+  F                    Forward forever; like "tail -f".
+  r  ^R  ^L            Repaint screen.
+  R                    Repaint screen, discarding buffered input.
+        ---------------------------------------------------
+        Default "window" is the screen height.
+        Default "half-window" is half of the screen height.
+ ---------------------------------------------------------------------------
+                          SEARCHING
+  /pattern          *  Search forward for (N-th) matching line.
+  ?pattern          *  Search backward for (N-th) matching line.
+  n                 *  Repeat previous search (for N-th occurrence).
+  N                 *  Repeat previous search in reverse direction.
+  ESC-n             *  Repeat previous search, spanning files.
+  ESC-N             *  Repeat previous search, reverse dir. & spanning files.
+  ESC-u                Undo (toggle) search highlighting.
+        ---------------------------------------------------
+        Search patterns may be modified by one or more of:
+        ^N or !  Search for NON-matching lines.
+        ^E or *  Search multiple files (pass thru END OF FILE).
+        ^F or @  Start search at FIRST file (for /) or last file (for ?).
+        ^K       Highlight matches, but don't move (KEEP position).
+        ^R       Don't use REGULAR EXPRESSIONS.
+ ---------------------------------------------------------------------------
+                           JUMPING
+  g  <  ESC-<       *  Go to first line in file (or line N).
+  G  >  ESC->       *  Go to last line in file (or line N).
+  p  %              *  Go to beginning of file (or N percent into file).
+  t                 *  Go to the (N-th) next tag.
+  T                 *  Go to the (N-th) previous tag.
+  {  (  [           *  Find close bracket } ) ].
+  }  )  ]           *  Find open bracket { ( [.
+  ESC-^F <c1> <c2>  *  Find close bracket <c2>.
+  ESC-^B <c1> <c2>  *  Find open bracket <c1>
+        ---------------------------------------------------
+        Each "find close bracket" command goes forward to the close bracket
+          matching the (N-th) open bracket in the top line.
+        Each "find open bracket" command goes backward to the open bracket
+          matching the (N-th) close bracket in the bottom line.
+  m<letter>            Mark the current position with <letter>.
+  '<letter>            Go to a previously marked position.
+  ''                   Go to the previous position.
+  ^X^X                 Same as '.
+        ---------------------------------------------------
+        A mark is any upper-case or lower-case letter.
+        Certain marks are predefined:
+             ^  means  beginning of the file
+             $  means  end of the file
+ ---------------------------------------------------------------------------
+                        CHANGING FILES
+  :e [file]            Examine a new file.
+  ^X^V                 Same as :e.
+  :n                *  Examine the (N-th) next file from the command line.
+  :p                *  Examine the (N-th) previous file from the command line.
+  :x                *  Examine the first (or N-th) file from the command line.
+  :d                   Delete the current file from the command line list.
+  =  ^G  :f            Print current file name.
+ ---------------------------------------------------------------------------
+                    MISCELLANEOUS COMMANDS
+  -<flag>              Toggle a command line option [see OPTIONS below].
+  --<name>             Toggle a command line option, by name.
+  _<flag>              Display the setting of a command line option.
+  __<name>             Display the setting of an option, by name.
+  +cmd                 Execute the less cmd each time a new file is examined.
+  !command             Execute the shell command with $SHELL.
+  |Xcommand            Pipe file between current pos & mark X to shell command.
+  v                    Edit the current file with $VISUAL or $EDITOR.
+  V                    Print version number of "less".
+ ---------------------------------------------------------------------------
+                           OPTIONS
+        Most options may be changed either on the command line,
+        or from within less by using the - or -- command.
+        Options may be given in one of two forms: either a single
+        character preceded by a -, or a name preceeded by --.
+  -?  ........  --help
+                  Display help (from command line).
+  -a  ........  --search-skip-screen
+                  Forward search skips current screen.
+  -b [N]  ....  --buffers=[N]
+                  Number of buffers.
+  -B  ........  --auto-buffers
+                  Don't automatically allocate buffers for pipes.
+  -c  ........  --clear-screen
+                  Repaint by clearing rather than scrolling.
+  -d  ........  --dumb
+                  Dumb terminal.
+  -D [xn.n]  .  --color=xn.n
+                  Set screen colors. (MS-DOS only)
+  -e  -E  ....  --quit-at-eof  --QUIT-AT-EOF
+                  Quit at end of file.
+  -f  ........  --force
+                  Force open non-regular files.
+  -F  ........  --quit-if-one-screen
+                  Quit if entire file fits on first screen.
+  -g  ........  --hilite-search
+                  Highlight only last match for searches.
+  -G  ........  --HILITE-SEARCH
+                  Don't highlight any matches for searches.
+  -h [N]  ....  --max-back-scroll=[N]
+                  Backward scroll limit.
+  -i  ........  --ignore-case
+                  Ignore case in searches that do not contain uppercase.
+  -I  ........  --IGNORE-CASE
+                  Ignore case in all searches.
+  -j [N]  ....  --jump-target=[N]
+                  Screen position of target lines.
+  -J  ........  --status-column
+                  Display a status column at left edge of screen.
+  -k [file]  .  --lesskey-file=[file]
+                  Use a lesskey file.
+  -L  ........  --no-lessopen
+                  Ignore the LESSOPEN environment variable.
+  -m  -M  ....  --long-prompt  --LONG-PROMPT
+                  Set prompt style.
+  -n  -N  ....  --line-numbers  --LINE-NUMBERS
+                  Don't use line numbers.
+  -o [file]  .  --log-file=[file]
+                  Copy to log file (standard input only).
+  -O [file]  .  --LOG-FILE=[file]
+                  Copy to log file (unconditionally overwrite).
+  -p [pattern]  --pattern=[pattern]
+                  Start at pattern (from command line).
+  -P [prompt]   --prompt=[prompt]
+                  Define new prompt.
+  -q  -Q  ....  --quiet  --QUIET  --silent --SILENT
+                  Quiet the terminal bell.
+  -r  -R  ....  --raw-control-chars  --RAW-CONTROL-CHARS
+                  Output "raw" control characters.
+  -s  ........  --squeeze-blank-lines
+                  Squeeze multiple blank lines.
+  -S  ........  --chop-long-lines
+                  Chop long lines.
+  -t [tag]  ..  --tag=[tag]
+                  Find a tag.
+  -T [tagsfile] --tag-file=[tagsfile]
+                  Use an alternate tags file.
+  -u  -U  ....  --underline-special  --UNDERLINE-SPECIAL
+                  Change handling of backspaces.
+  -V  ........  --version
+                  Display the version number of "less".
+  -w  ........  --hilite-unread
+                  Highlight first new line after forward-screen.
+  -W  ........  --HILITE-UNREAD
+                  Highlight first new line after any forward movement.
+  -x [N[,...]]  --tabs=[N[,...]]
+                  Set tab stops.
+  -X  ........  --no-init
+                  Don't use termcap init/deinit strings.
+                --no-keypad
+                  Don't use termcap keypad init/deinit strings.
+  -y [N]  ....  --max-forw-scroll=[N]
+                  Forward scroll limit.
+  -z [N]  ....  --window=[N]
+                  Set size of window.
+  -" [c[c]]  .  --quotes=[c[c]]
+                  Set shell quote characters.
+  -~  ........  --tilde
+                  Don't display tildes after end of file.
+  -# [N]  ....  --shift=[N]
+                  Horizontal scroll amount (0 = one half screen width)
+
+ ---------------------------------------------------------------------------
+                          LINE EDITING
+        These keys can be used to edit text being entered
+        on the "command line" at the bottom of the screen.
+ RightArrow                       ESC-l     Move cursor right one character.
+ LeftArrow                        ESC-h     Move cursor left one character.
+ CNTL-RightArrow  ESC-RightArrow  ESC-w     Move cursor right one word.
+ CNTL-LeftArrow   ESC-LeftArrow   ESC-b     Move cursor left one word.
+ HOME                             ESC-0     Move cursor to start of line.
+ END                              ESC-$     Move cursor to end of line.
+ BACKSPACE                                  Delete char to left of cursor.
+ DELETE                           ESC-x     Delete char under cursor.
+ CNTL-BACKSPACE   ESC-BACKSPACE             Delete word to left of cursor.
+ CNTL-DELETE      ESC-DELETE      ESC-X     Delete word under cursor.
+ CNTL-U           ESC (MS-DOS only)         Delete entire line.
+ UpArrow                          ESC-k     Retrieve previous command line.
+ DownArrow                        ESC-j     Retrieve next command line.
+ TAB                                        Complete filename & cycle.
+ SHIFT-TAB                        ESC-TAB   Complete filename & reverse cycle.
+ CNTL-L                                     Complete filename, list all.
+*/

@@ -11,10 +11,10 @@
 #include "libbb.h"
 
 #if ENABLE_FEATURE_MTAB_SUPPORT
-void erase_mtab(const char *name)
+void FAST_FUNC erase_mtab(const char *name)
 {
-	struct mntent *entries = NULL;
-	int i, count = 0;
+	struct mntent *entries;
+	int i, count;
 	FILE *mountTable;
 	struct mntent *m;
 
@@ -26,18 +26,21 @@ void erase_mtab(const char *name)
 		return;
 	}
 
+	entries = NULL;
+	count = 0;
 	while ((m = getmntent(mountTable)) != 0) {
-		i = count++;
-		entries = xrealloc(entries, count * sizeof(entries[0]));
-		entries[i].mnt_fsname = xstrdup(m->mnt_fsname);
-		entries[i].mnt_dir = xstrdup(m->mnt_dir);
-		entries[i].mnt_type = xstrdup(m->mnt_type);
-		entries[i].mnt_opts = xstrdup(m->mnt_opts);
-		entries[i].mnt_freq = m->mnt_freq;
-		entries[i].mnt_passno = m->mnt_passno;
+		entries = xrealloc_vector(entries, 3, count);
+		entries[count].mnt_fsname = xstrdup(m->mnt_fsname);
+		entries[count].mnt_dir = xstrdup(m->mnt_dir);
+		entries[count].mnt_type = xstrdup(m->mnt_type);
+		entries[count].mnt_opts = xstrdup(m->mnt_opts);
+		entries[count].mnt_freq = m->mnt_freq;
+		entries[count].mnt_passno = m->mnt_passno;
+		count++;
 	}
 	endmntent(mountTable);
 
+//TODO: make update atomic
 	mountTable = setmntent(bb_path_mtab_file, "w");
 	if (mountTable) {
 		for (i = 0; i < count; i++) {

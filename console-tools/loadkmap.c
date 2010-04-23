@@ -5,9 +5,7 @@
  * Copyright (C) 1998 Enrique Zanardi <ezanardi@ull.es>
  *
  * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
- *
  */
-
 #include "libbb.h"
 
 #define BINARY_KEYMAP_MAGIC "bkeymap"
@@ -26,28 +24,30 @@ struct kbentry {
 #define MAX_NR_KEYMAPS  256
 
 int loadkmap_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
-int loadkmap_main(int argc, char **argv)
+int loadkmap_main(int argc UNUSED_PARAM, char **argv UNUSED_PARAM)
 {
 	struct kbentry ke;
 	int i, j, fd;
 	uint16_t ibuff[NR_KEYS];
-	char flags[MAX_NR_KEYMAPS];
-	char buff[7];
+/*	const char *tty_name = CURRENT_TTY; */
+	RESERVE_CONFIG_BUFFER(flags, MAX_NR_KEYMAPS);
 
-	if (argc != 1)
-		bb_show_usage();
+/* bb_warn_ignoring_args(argv[1]); */
+	fd = get_console_fd_or_die();
+/* or maybe:
+	opt = getopt32(argv, "C:", &tty_name);
+	fd = xopen_nonblocking(tty_name);
+*/
 
-	fd = xopen(CURRENT_VC, O_RDWR);
+	xread(STDIN_FILENO, flags, 7);
+	if (strncmp(flags, BINARY_KEYMAP_MAGIC, 7))
+		bb_error_msg_and_die("not a valid binary keymap");
 
-	xread(0, buff, 7);
-	if (strncmp(buff, BINARY_KEYMAP_MAGIC, 7))
-		bb_error_msg_and_die("this is not a valid binary keymap");
-
-	xread(0, flags, MAX_NR_KEYMAPS);
+	xread(STDIN_FILENO, flags, MAX_NR_KEYMAPS);
 
 	for (i = 0; i < MAX_NR_KEYMAPS; i++) {
 		if (flags[i] == 1) {
-			xread(0, ibuff, NR_KEYS * sizeof(uint16_t));
+			xread(STDIN_FILENO, ibuff, NR_KEYS * sizeof(uint16_t));
 			for (j = 0; j < NR_KEYS; j++) {
 				ke.kb_index = j;
 				ke.kb_table = i;
@@ -57,6 +57,9 @@ int loadkmap_main(int argc, char **argv)
 		}
 	}
 
-	if (ENABLE_FEATURE_CLEAN_UP) close(fd);
-	return 0;
+	if (ENABLE_FEATURE_CLEAN_UP) {
+		close(fd);
+		RELEASE_CONFIG_BUFFER(flags);
+	}
+	return EXIT_SUCCESS;
 }
