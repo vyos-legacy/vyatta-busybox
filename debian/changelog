@@ -1,3 +1,9 @@
+vyatta-busybox (1.16.1-1+vyatta+1) unstable; urgency=low
+
+  * Merge of upstream git version of busybox
+
+ -- Stephen Hemminger <shemminger@vyatta.com>  Fri, 23 Apr 2010 11:07:21 -0700
+
 vyatta-busybox (1.9.2-3+vyatta+9) unstable; urgency=low
 
   * Don't ignore SIGTERM
