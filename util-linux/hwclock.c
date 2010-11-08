@@ -4,20 +4,13 @@
  *
  * Copyright (C) 2002 Robert Griebl <griebl@gmx.de>
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
 */
 
 #include "libbb.h"
 /* After libbb.h, since it needs sys/types.h on some systems */
 #include <sys/utsname.h>
 #include "rtc_.h"
-
-#if ENABLE_FEATURE_HWCLOCK_LONG_OPTIONS
-# ifndef _GNU_SOURCE
-#  define _GNU_SOURCE
-# endif
-#endif
-
 
 /* diff code is disabled: it's not sys/hw clock diff, it's some useless
  * "time between hwclock was started and we saw CMOS tick" quantity.

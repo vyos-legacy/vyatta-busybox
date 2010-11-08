@@ -5,7 +5,7 @@
  * Copyright 2005 Rob Landley <rob@landley.net>
  * Copyright 2005 Frank Sorenson <frank@tuxrocks.com>
  *
- * Licensed under GPL version 2, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2, see file LICENSE in this source tree.
  */
 #include "libbb.h"
 #include "xregex.h"
@@ -132,6 +132,7 @@ static void make_device(char *path, int delete)
 			major = -1;
 		}
 	}
+	/* else: for delete, -1 still deletes the node, but < -1 suppresses that */
 
 	/* Determine device name, type, major and minor */
 	device_name = (char*) bb_basename(path);
@@ -279,7 +280,7 @@ static void make_device(char *path, int delete)
 				if (aliaslink == '!' && s == a+1) {
 					val = st;
 					/* "!": suppress node creation/deletion */
-					major = -1;
+					major = -2;
 				}
 				else if (aliaslink == '>' || aliaslink == '=') {
 					val = st;
@@ -374,14 +375,12 @@ static void make_device(char *path, int delete)
 				putenv(s1);
 				if (system(command) == -1)
 					bb_perror_msg("can't run '%s'", command);
-				unsetenv("SUBSYSTEM");
-				free(s1);
-				unsetenv("MDEV");
-				free(s);
+				bb_unsetenv_and_free(s1);
+				bb_unsetenv_and_free(s);
 				free(command);
 			}
 
-			if (delete && major >= 0) {
+			if (delete && major >= -1) {
 				if (ENABLE_FEATURE_MDEV_RENAME && alias) {
 					if (aliaslink == '>')
 						unlink(device_name);

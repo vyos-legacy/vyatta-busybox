@@ -3,7 +3,7 @@
  * Russ Dill <Russ.Dill@asu.edu> September 2001
  * Rewritten by Vladimir Oleynik <dzo@simtreas.ru> (C) 2003
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 #ifndef UDHCP_COMMON_H
 #define UDHCP_COMMON_H 1
@@ -57,10 +57,20 @@ struct ip_udp_dhcp_packet {
 	struct dhcp_packet data;
 } PACKED;
 
+struct udp_dhcp_packet {
+	struct udphdr udp;
+	struct dhcp_packet data;
+} PACKED;
+
+enum {
+	IP_UDP_DHCP_SIZE = sizeof(struct ip_udp_dhcp_packet) - CONFIG_UDHCPC_SLACK_FOR_BUGGY_SERVERS,
+	UDP_DHCP_SIZE    = sizeof(struct udp_dhcp_packet) - CONFIG_UDHCPC_SLACK_FOR_BUGGY_SERVERS,
+	DHCP_SIZE        = sizeof(struct dhcp_packet) - CONFIG_UDHCPC_SLACK_FOR_BUGGY_SERVERS,
+};
+
 /* Let's see whether compiler understood us right */
 struct BUG_bad_sizeof_struct_ip_udp_dhcp_packet {
-	char BUG_bad_sizeof_struct_ip_udp_dhcp_packet
-		[(sizeof(struct ip_udp_dhcp_packet) != 576 + CONFIG_UDHCPC_SLACK_FOR_BUGGY_SERVERS) ? -1 : 1];
+	char c[IP_UDP_DHCP_SIZE == 576 ? 1 : -1];
 };
 
 
@@ -113,6 +123,7 @@ enum {
 //#define DHCP_IP_TTL           0x17
 //#define DHCP_MTU              0x1a
 //#define DHCP_BROADCAST        0x1c
+//#define DHCP_ROUTES           0x21
 //#define DHCP_NIS_DOMAIN       0x28
 //#define DHCP_NIS_SERVER       0x29
 //#define DHCP_NTP_SERVER       0x2a
@@ -134,6 +145,7 @@ enum {
 //#define DHCP_DOMAIN_SEARCH    0x77 /* RFC 3397. set of ASCIZ string, DNS-style compressed */
 //#define DHCP_SIP_SERVERS      0x78 /* RFC 3361. flag byte, then: 0: domain names, 1: IP addrs */
 //#define DHCP_STATIC_ROUTES    0x79 /* RFC 3442. (mask,ip,router) tuples */
+//#define DHCP_MS_STATIC_ROUTES 0xf9 /* Microsoft's pre-RFC 3442 code for 0x79? */
 //#define DHCP_WPAD             0xfc /* MSIE's Web Proxy Autodiscovery Protocol */
 #define DHCP_END                0xff
 
@@ -270,13 +282,13 @@ void udhcp_init_header(struct dhcp_packet *packet, char type) FAST_FUNC;
 int udhcp_recv_kernel_packet(struct dhcp_packet *packet, int fd) FAST_FUNC;
 
 int udhcp_send_raw_packet(struct dhcp_packet *dhcp_pkt,
-		uint32_t source_ip, int source_port,
-		uint32_t dest_ip, int dest_port, const uint8_t *dest_arp,
+		uint32_t source_nip, int source_port,
+		uint32_t dest_nip, int dest_port, const uint8_t *dest_arp,
 		int ifindex) FAST_FUNC;
 
 int udhcp_send_kernel_packet(struct dhcp_packet *dhcp_pkt,
-		uint32_t source_ip, int source_port,
-		uint32_t dest_ip, int dest_port) FAST_FUNC;
+		uint32_t source_nip, int source_port,
+		uint32_t dest_nip, int dest_port) FAST_FUNC;
 
 void udhcp_sp_setup(void) FAST_FUNC;
 int udhcp_sp_fd_set(fd_set *rfds, int extra_fd) FAST_FUNC;

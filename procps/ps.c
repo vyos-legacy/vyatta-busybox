@@ -6,7 +6,7 @@
  * Fix for SELinux Support:(c)2007 Hiroshi Shinji <shiroshi@my.email.ne.jp>
  *                         (c)2007 Yuichi Nakamura <ynakam@hitachisoft.jp>
  *
- * Licensed under the GPL version 2, see the file LICENSE in this tarball.
+ * Licensed under GPLv2, see file LICENSE in this source tree.
  */
 
 #include "libbb.h"
@@ -142,7 +142,7 @@ static unsigned get_kernel_HZ(void)
 	if (kernel_HZ == (unsigned)-1)
 		kernel_HZ = get_HZ_by_waiting();
 
-	//if (open_read_close("/proc/uptime", buf, sizeof(buf) <= 0)
+	//if (open_read_close("/proc/uptime", buf, sizeof(buf)) <= 0)
 	//	bb_perror_msg_and_die("can't read %s", "/proc/uptime");
 	//buf[sizeof(buf)-1] = '\0';
 	///sscanf(buf, "%llu", &seconds_since_boot);
@@ -232,7 +232,6 @@ static void func_tty(char *buf, int size, const procps_status_t *ps)
 		snprintf(buf, size+1, "%u,%u", ps->tty_major, ps->tty_minor);
 }
 
-
 #if ENABLE_FEATURE_PS_ADDITIONAL_COLUMNS
 
 static void func_rgroup(char *buf, int size, const procps_status_t *ps)
@@ -250,9 +249,10 @@ static void func_nice(char *buf, int size, const procps_status_t *ps)
 	sprintf(buf, "%*d", size, ps->niceness);
 }
 
-#endif /* FEATURE_PS_ADDITIONAL_COLUMNS */
+#endif
 
 #if ENABLE_FEATURE_PS_TIME
+
 static void func_etime(char *buf, int size, const procps_status_t *ps)
 {
 	/* elapsed time [[dd-]hh:]mm:ss; here only mm:ss */
@@ -278,6 +278,7 @@ static void func_time(char *buf, int size, const procps_status_t *ps)
 	mm /= 60;
 	snprintf(buf, size+1, "%3lu:%02u", mm, ss);
 }
+
 #endif
 
 #if ENABLE_SELINUX
@@ -337,11 +338,16 @@ static ps_out_t* new_out_t(void)
 static const ps_out_t* find_out_spec(const char *name)
 {
 	unsigned i;
+	char buf[ARRAY_SIZE(out_spec)*7 + 1];
+	char *p = buf;
+
 	for (i = 0; i < ARRAY_SIZE(out_spec); i++) {
-		if (!strncmp(name, out_spec[i].name6, 6))
+		if (strncmp(name, out_spec[i].name6, 6) == 0)
 			return &out_spec[i];
+		p += sprintf(p, "%.6s,", out_spec[i].name6);
 	}
-	bb_error_msg_and_die("bad -o argument '%s'", name);
+	p[-1] = '\0';
+	bb_error_msg_and_die("bad -o argument '%s', supported arguments: %s", name, buf);
 }
 
 static void parse_o(char* opt)

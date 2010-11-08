@@ -19,7 +19,7 @@
  * Author:      Fred N. van Kempen, <waltje@uwalt.nl.mugnet.org>
  *              and others.  Copyright 1993 MicroWalt Corporation
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  *
  * Patched to support 'add' and 'del' keywords for INET(4) addresses
  * by Mrs. Brisby <mrs.brisby@nimh.org>
@@ -927,7 +927,6 @@ static void print_bytes_scaled(unsigned long long ull, const char *end)
 
 static void ife_print6(struct interface *ptr)
 {
-
 	FILE *f;
 	char addr6[40], devname[20];
 	struct sockaddr_in6 sap;
@@ -1002,7 +1001,7 @@ static void ife_print(struct interface *ptr)
 	if (hw == NULL)
 		hw = get_hwntype(-1);
 
-	printf("%-9.9s Link encap:%s  ", ptr->name, hw->title);
+	printf("%-9s Link encap:%s  ", ptr->name, hw->title);
 	/* For some hardware types (eg Ash, ATM) we don't print the
 	   hardware address if it's null.  */
 	if (hw->print != NULL
@@ -1178,7 +1177,6 @@ static int for_all_interfaces(int (*doit) (struct interface *, void *),
 		return -1;
 	for (ife = int_list; ife; ife = ife->next) {
 		int err = doit(ife, cookie);
-
 		if (err)
 			return err;
 	}
