@@ -7,7 +7,7 @@
  * Copyright 1994 Matthew Dillon (dillon@apollo.west.oic.com)
  * Vladimir Oleynik <dzo@simtreas.ru> (C) 2002
  *
- * Licensed under the GPL v2 or later, see the file LICENSE in this tarball.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 
 #include "libbb.h"
@@ -20,10 +20,8 @@
 static void edit_file(const struct passwd *pas, const char *file)
 {
 	const char *ptr;
-	int pid = vfork();
+	int pid = xvfork();
 
-	if (pid < 0) /* failure */
-		bb_perror_msg_and_die("vfork");
 	if (pid) { /* parent */
 		wait4pid(pid);
 		return;
@@ -51,9 +49,7 @@ static int open_as_user(const struct passwd *pas, const char *file)
 	pid_t pid;
 	char c;
 
-	pid = vfork();
-	if (pid < 0) /* ERROR */
-		bb_perror_msg_and_die("vfork");
+	pid = xvfork();
 	if (pid) { /* PARENT */
 		if (wait4pid(pid) == 0) {
 			/* exitcode 0: child says it can read */

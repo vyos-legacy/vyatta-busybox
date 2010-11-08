@@ -7,7 +7,7 @@
  * Now does proper error checking on output and returns a failure exit code
  * if one or more paths cannot be resolved.
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 
 #include "libbb.h"
@@ -23,7 +23,7 @@ int realpath_main(int argc UNUSED_PARAM, char **argv)
 
 	do {
 		char *resolved_path = xmalloc_realpath(*argv);
-	       	if (resolved_path != NULL) {
+		if (resolved_path != NULL) {
 			puts(resolved_path);
 			free(resolved_path);
 		} else {

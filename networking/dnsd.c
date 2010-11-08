@@ -6,7 +6,7 @@
  * Copyright (C) 2005 Odd Arild Olsen (oao at fibula dot no)
  * Copyright (C) 2003 Paul Sheer
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  *
  * Odd Arild Olsen started out with the sheerdns [1] of Paul Sheer and rewrote
  * it into a shape which I believe is both easier to understand and maintain.
@@ -44,10 +44,15 @@ struct dns_head {
 	uint16_t nauth;
 	uint16_t nadd;
 };
+/* Structure used to access type and class fields.
+ * They are totally unaligned, but gcc 4.3.4 thinks that pointer of type uint16_t*
+ * is 16-bit aligned and replaces 16-bit memcpy (in move_from_unaligned16 macro)
+ * with aligned halfword access on arm920t!
+ * Oh well. Slapping PACKED everywhere seems to help: */
 struct type_and_class {
-	uint16_t type;
-	uint16_t class;
-};
+	uint16_t type PACKED;
+	uint16_t class PACKED;
+} PACKED;
 /* element of known name, ip address and reversed ip address */
 struct dns_entry {
 	struct dns_entry *next;
@@ -383,7 +388,7 @@ static int process_packet(struct dns_entry *conf_data,
 	query_len = strlen(query_string) + 1;
 	/* may be unaligned! */
 	unaligned_type_class = (void *)(query_string + query_len);
-	query_len += sizeof(unaligned_type_class);
+	query_len += sizeof(*unaligned_type_class);
 	/* where to append answer block */
 	answb = (void *)(unaligned_type_class + 1);
 

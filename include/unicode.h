@@ -1,6 +1,6 @@
 /* vi: set sw=4 ts=4: */
 /*
- * Licensed under the GPL version 2, see the file LICENSE in this tarball.
+ * Licensed under GPLv2, see file LICENSE in this source tree.
  */
 #ifndef UNICODE_H
 #define UNICODE_H 1
@@ -23,24 +23,37 @@ enum {
 
 #if !ENABLE_UNICODE_SUPPORT
 
-# define unicode_strlen(string) strlen(string)
+# define unicode_strlen(string)   strlen(string)
+# define unicode_strwidth(string) strlen(string)
 # define unicode_status UNICODE_OFF
 # define init_unicode() ((void)0)
 
 #else
 
 # if CONFIG_LAST_SUPPORTED_WCHAR < 126 || CONFIG_LAST_SUPPORTED_WCHAR >= 0x30000
-#  define LAST_SUPPORTED_WCHAR 0x2ffff
-# else
-#  define LAST_SUPPORTED_WCHAR CONFIG_LAST_SUPPORTED_WCHAR
+#  undef CONFIG_LAST_SUPPORTED_WCHAR
+#  define CONFIG_LAST_SUPPORTED_WCHAR 0x2ffff
 # endif
 
-# if LAST_SUPPORTED_WCHAR < 0x590
+# if CONFIG_LAST_SUPPORTED_WCHAR < 0x300
+#  undef ENABLE_UNICODE_COMBINING_WCHARS
+#  define ENABLE_UNICODE_COMBINING_WCHARS 0
+# endif
+
+# if CONFIG_LAST_SUPPORTED_WCHAR < 0x1100
+#  undef ENABLE_UNICODE_WIDE_WCHARS
+#  define ENABLE_UNICODE_WIDE_WCHARS 0
+# endif
+
+# if CONFIG_LAST_SUPPORTED_WCHAR < 0x590
 #  undef  ENABLE_UNICODE_BIDI_SUPPORT
 #  define ENABLE_UNICODE_BIDI_SUPPORT 0
 # endif
 
+/* Number of unicode chars. Falls back to strlen() on invalid unicode */
 size_t FAST_FUNC unicode_strlen(const char *string);
+/* Width on terminal */
+size_t FAST_FUNC unicode_strwidth(const char *string);
 enum {
 	UNI_FLAG_PAD = (1 << 0),
 };
@@ -92,6 +105,7 @@ size_t wcrtomb(char *s, wchar_t wc, mbstate_t *ps) FAST_FUNC;
 int iswspace(wint_t wc) FAST_FUNC;
 int iswalnum(wint_t wc) FAST_FUNC;
 int iswpunct(wint_t wc) FAST_FUNC;
+int wcwidth(unsigned ucs) FAST_FUNC;
 #  if ENABLE_UNICODE_BIDI_SUPPORT
 #   undef unicode_bidi_isrtl
 int unicode_bidi_isrtl(wint_t wc) FAST_FUNC;

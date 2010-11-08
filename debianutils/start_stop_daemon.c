@@ -5,7 +5,7 @@
  * Written by Marek Michalkiewicz <marekm@i17linuxb.ists.pwr.wroc.pl>,
  * Adapted for busybox David Kimdon <dwhedon@gordian.com>
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 
 /*
@@ -373,7 +373,7 @@ int start_stop_daemon_main(int argc UNUSED_PARAM, char **argv)
 
 //	IF_FEATURE_START_STOP_DAEMON_FANCY(
 //		if (retry_arg)
-//			retries = xatoi_u(retry_arg);
+//			retries = xatoi_positive(retry_arg);
 //	)
 	//argc -= optind;
 	argv += optind;
@@ -409,9 +409,7 @@ int start_stop_daemon_main(int argc UNUSED_PARAM, char **argv)
 		/* DAEMON_DEVNULL_STDIO is superfluous -
 		 * it's always done by bb_daemonize() */
 #else
-		pid_t pid = vfork();
-		if (pid < 0) /* error */
-			bb_perror_msg_and_die("vfork");
+		pid_t pid = xvfork();
 		if (pid != 0) {
 			/* parent */
 			/* why _exit? the child may have changed the stack,
@@ -448,5 +446,5 @@ int start_stop_daemon_main(int argc UNUSED_PARAM, char **argv)
 	}
 #endif
 	execvp(startas, argv);
-	bb_perror_msg_and_die("can't start %s", startas);
+	bb_perror_msg_and_die("can't execute '%s'", startas);
 }

@@ -5,7 +5,7 @@
  * Copyright (C) 1999-2004 by Erik Andersen <andersen@codepoet.org>
  * Copyright (C) 2005 by Rob Landley <rob@landley.net>
  *
- * Licensed under the GPL v2 or later, see the file LICENSE in this tarball.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 #include "libbb.h"
 #include <linux/version.h>
@@ -56,7 +56,7 @@ char* FAST_FUNC query_loop(const char *device)
 	fd = open(device, O_RDONLY);
 	if (fd >= 0) {
 		if (ioctl(fd, BB_LOOP_GET_STATUS, &loopinfo) == 0) {
-			dev = xasprintf("%lu %s", (long) loopinfo.lo_offset,
+			dev = xasprintf("%"OFF_FMT"u %s", (off_t) loopinfo.lo_offset,
 					(char *)loopinfo.lo_file_name);
 		}
 		close(fd);

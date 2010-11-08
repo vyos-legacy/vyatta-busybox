@@ -4,7 +4,7 @@
  *
  * Copyright (C) 1999-2004 by Erik Andersen <andersen@codepoet.org>
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 #include "libbb.h"
 #if ENABLE_FEATURE_SYSLOG
@@ -76,12 +76,9 @@ void FAST_FUNC bb_verror_msg(const char *s, va_list p, const char* strerr)
 	free(msg);
 }
 
-
 #ifdef VERSION_WITH_WRITEV
-
 /* Code size is approximately the same, but currently it's the only user
  * of writev in entire bbox. __libc_writev in uclibc is ~50 bytes. */
-
 void FAST_FUNC bb_verror_msg(const char *s, va_list p, const char* strerr)
 {
 	int strerr_len, msgeol_len;
@@ -139,3 +136,23 @@ void FAST_FUNC bb_verror_msg(const char *s, va_list p, const char* strerr)
 	free(msgc);
 }
 #endif
+
+
+void FAST_FUNC bb_error_msg_and_die(const char *s, ...)
+{
+	va_list p;
+
+	va_start(p, s);
+	bb_verror_msg(s, p, NULL);
+	va_end(p);
+	xfunc_die();
+}
+
+void FAST_FUNC bb_error_msg(const char *s, ...)
+{
+	va_list p;
+
+	va_start(p, s);
+	bb_verror_msg(s, p, NULL);
+	va_end(p);
+}

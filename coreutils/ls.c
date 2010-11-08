@@ -3,7 +3,7 @@
  * tiny-ls.c version 0.1.0: A minimalist 'ls'
  * Copyright (C) 1996 Brian Candler <B.Candler@pobox.com>
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 
 /* [date unknown. Perhaps before year 2000]
@@ -52,7 +52,6 @@
 
 
 enum {
-
 TERMINAL_WIDTH  = 80,           /* use 79 if terminal has linefold bug */
 COLUMN_GAP      = 2,            /* includes the file type char */
 
@@ -120,7 +119,6 @@ LIST_LONG       = LIST_MODEBITS | LIST_NLINKS | LIST_ID_NAME | LIST_SIZE | \
 SPLIT_DIR       = 1,
 SPLIT_FILE      = 0,
 SPLIT_SUBDIR    = 2,
-
 };
 
 /* "[-]Cadil1", POSIX mandated options, busybox always supports */
@@ -184,7 +182,7 @@ static const unsigned opt_flags[] = {
 	LIST_INO,                   /* i */
 	LIST_LONG | STYLE_LONG,     /* l - remember LS_DISP_HR in mask! */
 	LIST_SHORT | STYLE_SINGLE,  /* 1 */
-	0,                          /* g (don't show group) - handled via OPT_g */
+	0,                          /* g (don't show owner) - handled via OPT_g */
 	LIST_ID_NUMERIC,            /* n */
 	LIST_BLOCKS,                /* s */
 	DISP_ROWS,                  /* x */
@@ -575,7 +573,8 @@ static unsigned print_name(const char *name)
 			putchar('\\');
 			len++;
 		}
-		putchar(*name++);
+		putchar(*name);
+		name++;
 	}
 	putchar('"');
 	return len;
@@ -621,7 +620,7 @@ static NOINLINE unsigned list_single(const struct dnode *dn)
 	if (all_fmt & LIST_ID_NAME) {
 		if (option_mask32 & OPT_g) {
 			column += printf("%-8.8s ",
-				get_cached_username(dn->dstat.st_uid));
+				get_cached_groupname(dn->dstat.st_gid));
 		} else {
 			column += printf("%-8.8s %-8.8s ",
 				get_cached_username(dn->dstat.st_uid),
@@ -631,7 +630,7 @@ static NOINLINE unsigned list_single(const struct dnode *dn)
 #endif
 	if (all_fmt & LIST_ID_NUMERIC) {
 		if (option_mask32 & OPT_g)
-			column += printf("%-8u ", (int) dn->dstat.st_uid);
+			column += printf("%-8u ", (int) dn->dstat.st_gid);
 		else
 			column += printf("%-8u %-8u ",
 					(int) dn->dstat.st_uid,

@@ -10,7 +10,7 @@
  * Written by Michael Meskes
  * Taken from coreutils and turned into a busybox applet by Mike Frysinger
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 #include "libbb.h"
 
@@ -216,10 +216,7 @@ static void FAST_FUNC print_stat(char *pformat, const char m,
 			char *linkname = xmalloc_readlink_or_warn(filename);
 			if (linkname == NULL)
 				return;
-			/*printf("\"%s\" -> \"%s\"", filename, linkname); */
-			printf(pformat, filename);
-			printf(" -> ");
-			printf(pformat, linkname);
+			printf("'%s' -> '%s'", filename, linkname);
 			free(linkname);
 		} else {
 			printf(pformat, filename);
@@ -250,14 +247,12 @@ static void FAST_FUNC print_stat(char *pformat, const char m,
 		strcat(pformat, "lu");
 		printf(pformat, (unsigned long) statbuf->st_uid);
 	} else if (m == 'U') {
-		setpwent();
 		pw_ent = getpwuid(statbuf->st_uid);
 		printfs(pformat, (pw_ent != NULL) ? pw_ent->pw_name : "UNKNOWN");
 	} else if (m == 'g') {
 		strcat(pformat, "lu");
 		printf(pformat, (unsigned long) statbuf->st_gid);
 	} else if (m == 'G') {
-		setgrent();
 		gw_ent = getgrgid(statbuf->st_gid);
 		printfs(pformat, (gw_ent != NULL) ? gw_ent->gr_name : "UNKNOWN");
 	} else if (m == 't') {
@@ -320,24 +315,28 @@ static void print_it(const char *masterformat,
 
 	b = format;
 	while (b) {
+		/* Each iteration finds next %spec,
+		 * prints preceding string and handles found %spec
+		 */
 		size_t len;
 		char *p = strchr(b, '%');
 		if (!p) {
-			/* coreutils 6.3 always prints <cr> at the end */
+			/* coreutils 6.3 always prints newline at the end */
 			/*fputs(b, stdout);*/
 			puts(b);
 			break;
 		}
-		*p++ = '\0';
-		fputs(b, stdout);
 
 		/* dest = "%<modifiers>" */
-		len = strspn(p, "#-+.I 0123456789");
-		dest[0] = '%';
-		memcpy(dest + 1, p, len);
-		dest[1 + len] = '\0';
-		p += len;
+		len = 1 + strspn(p + 1, "#-+.I 0123456789");
+		memcpy(dest, p, len);
+		dest[len] = '\0';
 
+		/* print preceding string */
+		*p = '\0';
+		fputs(b, stdout);
+
+		p += len;
 		b = p + 1;
 		switch (*p) {
 		case '\0':
@@ -470,7 +469,7 @@ static bool do_statfs(const char *filename, const char *format)
 	if (scontext)
 		freecon(scontext);
 # endif
-#endif	/* FEATURE_STAT_FORMAT */
+#endif  /* FEATURE_STAT_FORMAT */
 	return 1;
 }
 
@@ -508,7 +507,7 @@ static bool do_stat(const char *filename, const char *format)
 		} else {
 			if (S_ISBLK(statbuf.st_mode) || S_ISCHR(statbuf.st_mode)) {
 				format =
-					"  File: \"%N\"\n"
+					"  File: %N\n"
 					"  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n"
 					"Device: %Dh/%dd\tInode: %-10i  Links: %-5h"
 					" Device type: %t,%T\n"
@@ -516,7 +515,7 @@ static bool do_stat(const char *filename, const char *format)
 					"Access: %x\n" "Modify: %y\n" "Change: %z\n";
 			} else {
 				format =
-					"  File: \"%N\"\n"
+					"  File: %N\n"
 					"  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n"
 					"Device: %Dh/%dd\tInode: %-10i  Links: %h\n"
 					"Access: (%04a/%10.10A)  Uid: (%5u/%8U)   Gid: (%5g/%8G)\n"
@@ -531,14 +530,14 @@ static bool do_stat(const char *filename, const char *format)
 		} else {
 			if (S_ISBLK(statbuf.st_mode) || S_ISCHR(statbuf.st_mode)) {
 				format = (option_mask32 & OPT_SELINUX ?
-					  "  File: \"%N\"\n"
+					  "  File: %N\n"
 					  "  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n"
 					  "Device: %Dh/%dd\tInode: %-10i  Links: %-5h"
 					  " Device type: %t,%T\n"
 					  "Access: (%04a/%10.10A)  Uid: (%5u/%8U)   Gid: (%5g/%8G)\n"
 					  "   S_Context: %C\n"
 					  "Access: %x\n" "Modify: %y\n" "Change: %z\n":
-					  "  File: \"%N\"\n"
+					  "  File: %N\n"
 					  "  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n"
 					  "Device: %Dh/%dd\tInode: %-10i  Links: %-5h"
 					  " Device type: %t,%T\n"
@@ -546,13 +545,13 @@ static bool do_stat(const char *filename, const char *format)
 					  "Access: %x\n" "Modify: %y\n" "Change: %z\n");
 			} else {
 				format = (option_mask32 & OPT_SELINUX ?
-					  "  File: \"%N\"\n"
+					  "  File: %N\n"
 					  "  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n"
 					  "Device: %Dh/%dd\tInode: %-10i  Links: %h\n"
 					  "Access: (%04a/%10.10A)  Uid: (%5u/%8U)   Gid: (%5g/%8G)\n"
 					  "S_Context: %C\n"
 					  "Access: %x\n" "Modify: %y\n" "Change: %z\n":
-					  "  File: \"%N\"\n"
+					  "  File: %N\n"
 					  "  Size: %-10s\tBlocks: %-10b IO Block: %-6o %F\n"
 					  "Device: %Dh/%dd\tInode: %-10i  Links: %h\n"
 					  "Access: (%04a/%10.10A)  Uid: (%5u/%8U)   Gid: (%5g/%8G)\n"
@@ -590,20 +589,20 @@ static bool do_stat(const char *filename, const char *format)
 # endif
 	} else {
 		char *linkname = NULL;
-
 		struct passwd *pw_ent;
 		struct group *gw_ent;
-		setgrent();
+
 		gw_ent = getgrgid(statbuf.st_gid);
-		setpwent();
 		pw_ent = getpwuid(statbuf.st_uid);
 
 		if (S_ISLNK(statbuf.st_mode))
 			linkname = xmalloc_readlink_or_warn(filename);
-		if (linkname)
-			printf("  File: \"%s\" -> \"%s\"\n", filename, linkname);
-		else
-			printf("  File: \"%s\"\n", filename);
+		if (linkname) {
+			printf("  File: '%s' -> '%s'\n", filename, linkname);
+			free(linkname);
+		} else {
+			printf("  File: '%s'\n", filename);
+		}
 
 		printf("  Size: %-10llu\tBlocks: %-10llu IO Block: %-6lu %s\n"
 		       "Device: %llxh/%llud\tInode: %-10llu  Links: %-5lu",
@@ -631,12 +630,11 @@ static bool do_stat(const char *filename, const char *format)
 # if ENABLE_SELINUX
 		printf("   S_Context: %lc\n", *scontext);
 # endif
-		printf("Access: %s\n" "Modify: %s\n" "Change: %s\n",
-		       human_time(statbuf.st_atime),
-		       human_time(statbuf.st_mtime),
-		       human_time(statbuf.st_ctime));
+		printf("Access: %s\n", human_time(statbuf.st_atime));
+		printf("Modify: %s\n", human_time(statbuf.st_mtime));
+		printf("Change: %s\n", human_time(statbuf.st_ctime));
 	}
-#endif	/* FEATURE_STAT_FORMAT */
+#endif  /* FEATURE_STAT_FORMAT */
 	return 1;
 }
 

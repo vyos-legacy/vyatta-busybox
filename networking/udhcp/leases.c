@@ -2,7 +2,7 @@
 /*
  * Russ Dill <Russ.Dill@asu.edu> July 2001
  *
- * Licensed under GPLv2, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2, see file LICENSE in this source tree.
  */
 #include "common.h"
 #include "dhcpd.h"
@@ -60,6 +60,8 @@ struct dyn_lease* FAST_FUNC add_lease(
 		memset(oldest, 0, sizeof(*oldest));
 		if (hostname) {
 			char *p;
+
+			hostname_len++; /* include NUL */
 			if (hostname_len > sizeof(oldest->hostname))
 				hostname_len = sizeof(oldest->hostname);
 			p = safe_strncpy(oldest->hostname, hostname, hostname_len);

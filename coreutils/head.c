@@ -4,7 +4,7 @@
  *
  * Copyright (C) 2003  Manuel Novoa III  <mjn3@codepoet.org>
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 
 /* BB_AUDIT SUSv3 compliant */
@@ -12,6 +12,8 @@
 /* http://www.opengroup.org/onlinepubs/007904975/utilities/head.html */
 
 #include "libbb.h"
+
+/* This is a NOEXEC applet. Be very careful! */
 
 static const char head_opts[] ALIGN1 =
 	"n:"
@@ -27,7 +29,7 @@ static const struct suffix_mult head_suffixes[] = {
 	{ "", 0 }
 };
 
-static const char header_fmt_str[] ALIGN1 = "\n==> %s <==\n";
+#define header_fmt_str "\n==> %s <==\n"
 
 int head_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int head_main(int argc, char **argv)

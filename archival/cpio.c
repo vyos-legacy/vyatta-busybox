@@ -4,7 +4,7 @@
  *
  * Copyright (C) 2001 by Glenn McGrath
  *
- * Licensed under GPLv2 or later, see file LICENSE in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  *
  * Limitations:
  * Doesn't check CRC's
@@ -12,7 +12,7 @@
  *
  */
 #include "libbb.h"
-#include "unarchive.h"
+#include "archive.h"
 
 /* GNU cpio 2.9 --help (abridged):
 
@@ -311,6 +311,7 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 	/* no parameters */
 	opt_complementary = "=0";
 	opt = getopt32(argv, OPTION_STR, &cpio_filename);
+	argv += optind;
 	if (opt & CPIO_OPT_FILE) { /* -F */
 		xmove_fd(xopen(cpio_filename, O_RDONLY), STDIN_FILENO);
 	}
@@ -369,7 +370,7 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 		if (cpio_fmt[0] != 'n') /* we _require_ "-H newc" */
 			bb_show_usage();
 		if (opt & CPIO_OPT_FILE) {
-			xmove_fd(xopen3(cpio_filename, O_WRONLY | O_CREAT | O_TRUNC, 0666), STDOUT_FILENO);
+			xmove_fd(xopen(cpio_filename, O_WRONLY | O_CREAT | O_TRUNC), STDOUT_FILENO);
 		}
  dump:
 		return cpio_o();
@@ -424,7 +425,7 @@ int cpio_main(int argc UNUSED_PARAM, char **argv)
 	if (archive_handle->cpio__blocks != (off_t)-1
 	 && !(opt & CPIO_OPT_QUIET)
 	) {
-		printf("%"OFF_FMT"u blocks\n", archive_handle->cpio__blocks);
+		fprintf(stderr, "%"OFF_FMT"u blocks\n", archive_handle->cpio__blocks);
 	}
 
 	return EXIT_SUCCESS;

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Copyright 2005 by Rob Landley <rob@landley.net>
-# Licensed under GPL v2, see file LICENSE for details.
+# Licensed under GPLv2, see file LICENSE in this source tree.
 
 # AUDIT:
 
@@ -75,6 +75,8 @@ testing "grep handles multiple regexps" "grep -e one -e two input ; echo \$?" \
 	"one\ntwo\n0\n" "one\ntwo\n" ""
 testing "grep -F handles multiple expessions" "grep -F -e one -e two input ; echo \$?" \
 	"one\ntwo\n0\n" "one\ntwo\n" ""
+testing "grep -F handles -i" "grep -F -i foo input ; echo \$?" \
+	"FOO\n0\n" "FOO\n" ""
 
 # -f file/-
 testing "grep can read regexps from stdin" "grep -f - input ; echo \$?" \
@@ -96,5 +98,9 @@ testing "grep -o does not loop forever" \
 	'grep -o "[^/]*$"' \
 	"test\n" \
 	"" "/var/test\n"
+testing "grep -o does not loop forever on zero-length match" \
+	'grep -o "" | head -n1' \
+	"" \
+	"" "test\n"
 
 exit $FAILCOUNT

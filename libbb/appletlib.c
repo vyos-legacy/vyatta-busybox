@@ -7,9 +7,9 @@
  * here, please feel free to acknowledge your work.
  *
  * Based in part on code from sash, Copyright (c) 1999 by David I. Bell
- * Permission has been granted to redistribute this code under the GPL.
+ * Permission has been granted to redistribute this code under GPL.
  *
- * Licensed under GPLv2 or later, see file License in this tarball for details.
+ * Licensed under GPLv2 or later, see file LICENSE in this source tree.
  */
 
 /* We are trying to not use printf, this benefits the case when selected
@@ -43,35 +43,30 @@
 #include "applets.h"
 #undef PROTOTYPES
 
-#if ENABLE_SHOW_USAGE && !ENABLE_FEATURE_COMPRESS_USAGE
-/* Define usage_messages[] */
-static const char usage_messages[] ALIGN1 = ""
-# define MAKE_USAGE
-# include "usage.h"
-# include "applets.h"
-;
-# undef MAKE_USAGE
-#else
-# define usage_messages 0
-#endif /* SHOW_USAGE */
-
 
 /* Include generated applet names, pointers to <applet>_main, etc */
 #include "applet_tables.h"
 /* ...and if applet_tables generator says we have only one applet... */
 #ifdef SINGLE_APPLET_MAIN
-#undef ENABLE_FEATURE_INDIVIDUAL
-#define ENABLE_FEATURE_INDIVIDUAL 1
-#undef IF_FEATURE_INDIVIDUAL
-#define IF_FEATURE_INDIVIDUAL(...) __VA_ARGS__
+# undef ENABLE_FEATURE_INDIVIDUAL
+# define ENABLE_FEATURE_INDIVIDUAL 1
+# undef IF_FEATURE_INDIVIDUAL
+# define IF_FEATURE_INDIVIDUAL(...) __VA_ARGS__
 #endif
 
 
+#include "usage_compressed.h"
+
+#if ENABLE_SHOW_USAGE && !ENABLE_FEATURE_COMPRESS_USAGE
+static const char usage_messages[] ALIGN1 = UNPACKED_USAGE;
+#else
+# define usage_messages 0
+#endif
+
 #if ENABLE_FEATURE_COMPRESS_USAGE
 
-#include "usage_compressed.h"
-#include "unarchive.h"
-
+static const char packed_usage[] ALIGN1 = { PACKED_USAGE };
+# include "archive.h"
 static const char *unpack_usage_messages(void)
 {
 	char *outbuf = NULL;
@@ -80,35 +75,28 @@ static const char *unpack_usage_messages(void)
 
 	i = start_bunzip(&bd,
 			/* src_fd: */ -1,
-			/* inbuf:  */ (void *)packed_usage,
+			/* inbuf:  */ packed_usage,
 			/* len:    */ sizeof(packed_usage));
 	/* read_bunzip can longjmp to start_bunzip, and ultimately
 	 * end up here with i != 0 on read data errors! Not trivial */
 	if (!i) {
 		/* Cannot use xmalloc: will leak bd in NOFORK case! */
-		outbuf = malloc_or_warn(SIZEOF_usage_messages);
+		outbuf = malloc_or_warn(sizeof(UNPACKED_USAGE));
 		if (outbuf)
-			read_bunzip(bd, outbuf, SIZEOF_usage_messages);
+			read_bunzip(bd, outbuf, sizeof(UNPACKED_USAGE));
 	}
 	dealloc_bunzip(bd);
 	return outbuf;
 }
-#define dealloc_usage_messages(s) free(s)
+# define dealloc_usage_messages(s) free(s)
 
 #else
 
-#define unpack_usage_messages() usage_messages
-#define dealloc_usage_messages(s) ((void)(s))
+# define unpack_usage_messages() usage_messages
+# define dealloc_usage_messages(s) ((void)(s))
 
 #endif /* FEATURE_COMPRESS_USAGE */
 
-
-static void full_write2_str(const char *str)
-{
-	// This uses stdio:
-	//xwrite_str(STDERR_FILENO, str);
-	write(STDERR_FILENO, str, strlen(str));
-}
 
 void FAST_FUNC bb_show_usage(void)
 {
@@ -207,7 +195,11 @@ void lbb_prepare(const char *applet
 #if ENABLE_FEATURE_INDIVIDUAL
 	/* Redundant for busybox (run_applet_and_exit covers that case)
 	 * but needed for "individual applet" mode */
-	if (argv[1] && !argv[2] && strcmp(argv[1], "--help") == 0) {
+	if (argv[1]
+	 && !argv[2]
+	 && strcmp(argv[1], "--help") == 0
+	 && strncmp(applet, "busybox", 7) != 0
+	) {
 		/* Special case. POSIX says "test --help"
 		 * should be no different from e.g. "test --foo".  */
 		if (!ENABLE_TEST || strcmp(applet_name, "test") != 0)
@@ -600,9 +592,11 @@ static const char usr_sbin[] ALIGN1 = "/usr/sbin/";
 static const char *const install_dir[] = {
 	&usr_bin [8], /* "/" */
 	&usr_bin [4], /* "/bin/" */
-	&usr_sbin[4], /* "/sbin/" */
-	usr_bin,
-	usr_sbin
+	&usr_sbin[4]  /* "/sbin/" */
+# if !ENABLE_INSTALL_NO_USR
+	,usr_bin
+	,usr_sbin
+# endif
 };
 
 
@@ -663,6 +657,7 @@ static int busybox_main(char **argv)
 			"See source distribution for full notice.\n"
 			"\n"
 			"Usage: busybox [function] [arguments]...\n"
+			"   or: busybox --list[-full]\n"
 			"   or: function [arguments]...\n"
 			"\n"
 			"\tBusyBox is a multi-call binary that combines many common Unix\n"
