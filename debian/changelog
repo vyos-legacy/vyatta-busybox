@@ -1,3 +1,10 @@
+vyatta-busybox (1.18.0-1+vyatta+1) unstable; urgency=low
+
+  * Merge of upstream git version 1.18.0 of busybox
+  * Change history truncated (git-dch fails)
+
+ -- Stephen Hemminger <shemminger@vyatta.com>  Mon, 08 Nov 2010 16:36:20 -0700
+
 vyatta-busybox (1.16.1-1+vyatta+3) unstable; urgency=low
 
   * UNRELEASED
