@@ -1,3 +1,10 @@
+vyatta-busybox (1.18.0-1+vyatta+2) unstable; urgency=low
+
+  * Update debian rules to build vyatta version
+  * Update Depends in control file
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Tue, 09 Nov 2010 09:04:30 -0800
+
 vyatta-busybox (1.18.0-1+vyatta+1) unstable; urgency=low
 
   * Merge of upstream git version 1.18.0 of busybox
