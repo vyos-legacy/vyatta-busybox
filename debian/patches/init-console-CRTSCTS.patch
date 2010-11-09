@@ -1,0 +1,15 @@
+--- a/init/init.c.original	2010-10-17 20:12:02.000000000 +0200
++++ b/init/init.c	2010-10-17 20:12:17.000000000 +0200
+@@ -232,7 +232,11 @@
+ #endif
+ 
+ 	/* Make it be sane */
+-	tty.c_cflag &= CBAUD | CBAUDEX | CSIZE | CSTOPB | PARENB | PARODD;
++	tty.c_cflag &= CBAUD | CBAUDEX | CSIZE | CSTOPB | PARENB | PARODD
++#ifdef CRTSCTS
++		| CRTSCTS
++#endif
++		;
+ 	tty.c_cflag |= CREAD | HUPCL | CLOCAL;
+ 
+ 	/* input modes */

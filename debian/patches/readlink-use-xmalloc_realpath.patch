@@ -1,0 +1,50 @@
+From b175462422f02a159a14dc5561d8bef6f84b2b66 Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Thu, 27 May 2010 15:32:19 +0200
+Subject: [PATCH 1/9] readlink: use xmalloc_realpath()
+
+Using realpath() directly with a non-NULL output buffer is unsafe because its
+behavior is unspecified on systems which don't have PATH_MAX (ie. Hurd)
+
+I beleive this also fixes a small bug whereby 'buf' would not be freed
+on 'readlink -v' with ENABLE_FEATURE_CLEANUP.
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ coreutils/readlink.c |    5 ++---
+ 1 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/coreutils/readlink.c b/coreutils/readlink.c
+index 20df38b..2ed5e2c 100644
+--- a/coreutils/readlink.c
++++ b/coreutils/readlink.c
+@@ -36,7 +36,6 @@ int readlink_main(int argc UNUSED_PARAM, char **argv)
+ {
+ 	char *buf;
+ 	char *fname;
+-	char pathbuf[PATH_MAX];
+ 
+ 	IF_FEATURE_READLINK_FOLLOW(
+ 		unsigned opt;
+@@ -56,7 +55,7 @@ int readlink_main(int argc UNUSED_PARAM, char **argv)
+ 		logmode = LOGMODE_NONE;
+ 
+ 	if (opt & 1) { /* -f */
+-		buf = realpath(fname, pathbuf);
++		buf = xmalloc_realpath(fname);
+ 	} else {
+ 		buf = xmalloc_readlink_or_warn(fname);
+ 	}
+@@ -65,7 +64,7 @@ int readlink_main(int argc UNUSED_PARAM, char **argv)
+ 		return EXIT_FAILURE;
+ 	printf((opt & 2) ? "%s" : "%s\n", buf);
+ 
+-	if (ENABLE_FEATURE_CLEAN_UP && !opt)
++	if (ENABLE_FEATURE_CLEAN_UP)
+ 		free(buf);
+ 
+ 	fflush_stdout_and_exit(EXIT_SUCCESS);
+-- 
+1.7.1
+

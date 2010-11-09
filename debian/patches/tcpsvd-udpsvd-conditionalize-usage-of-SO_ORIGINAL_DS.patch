@@ -1,0 +1,70 @@
+From 2ea12d8b6d2a36c5d49df1ae97b86ba287835249 Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Thu, 27 May 2010 15:46:25 +0200
+Subject: [PATCH 9/9] tcpsvd,udpsvd: conditionalize usage of SO_ORIGINAL_DST
+
+On systems without this call, $TCPORIGDSTADDR is not set.
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ networking/Config.src |    2 --
+ networking/tcpudp.c   |    5 +++++
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/networking/Config.src b/networking/Config.src
+index fc613e8..2d29c42 100644
+--- a/networking/Config.src
++++ b/networking/Config.src
+@@ -733,7 +733,6 @@ config SLATTACH
+ config TCPSVD
+ 	bool "tcpsvd"
+ 	default y
+-	depends on PLATFORM_LINUX
+ 	help
+ 	  tcpsvd listens on a TCP port and runs a program for each new
+ 	  connection.
+@@ -966,7 +965,6 @@ config IFUPDOWN_UDHCPC_CMD_OPTIONS
+ config UDPSVD
+ 	bool "udpsvd"
+ 	default y
+-	depends on PLATFORM_LINUX
+ 	help
+ 	  udpsvd listens on an UDP port and runs a program for each new
+ 	  connection.
+diff --git a/networking/tcpudp.c b/networking/tcpudp.c
+index 53e622b..40f6825 100644
+--- a/networking/tcpudp.c
++++ b/networking/tcpudp.c
+@@ -30,9 +30,12 @@
+  */
+ 
+ #include "libbb.h"
++
+ /* Wants <limits.h> etc, thus included after libbb.h: */
++#ifdef __linux__
+ #include <linux/types.h> /* for __be32 etc */
+ #include <linux/netfilter_ipv4.h>
++#endif
+ 
+ // TODO: move into this file:
+ #include "tcpudp_perhost.h"
+@@ -464,6 +467,7 @@ int tcpudpsvd_main(int argc UNUSED_PARAM, char **argv)
+ 			/* setup ucspi env */
+ 			const char *proto = tcp ? "TCP" : "UDP";
+ 
++#ifdef SO_ORIGINAL_DST
+ 			/* Extract "original" destination addr:port
+ 			 * from Linux firewall. Useful when you redirect
+ 			 * an outbond connection to local handler, and it needs
+@@ -473,6 +477,7 @@ int tcpudpsvd_main(int argc UNUSED_PARAM, char **argv)
+ 				xsetenv_plain("TCPORIGDSTADDR", addr);
+ 				free(addr);
+ 			}
++#endif
+ 			xsetenv_plain("PROTO", proto);
+ 			xsetenv_proto(proto, "LOCALADDR", local_addr);
+ 			xsetenv_proto(proto, "REMOTEADDR", remote_addr);
+-- 
+1.7.1
+

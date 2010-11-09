@@ -1,6 +1,6 @@
---- a/Makefile.custom	2010-04-23 10:05:48.476350544 -0700
-+++ b/Makefile.custom	2010-04-23 10:10:24.194451175 -0700
-@@ -107,7 +107,7 @@ bigdata: busybox_unstripped
+--- a/Makefile.custom
++++ b/Makefile.custom
+@@ -107,7 +107,7 @@
  
  # Documentation Targets
  .PHONY: doc
@@ -9,7 +9,7 @@
  
  # FIXME: Doesn't belong here
         cmd_doc =
-@@ -134,10 +134,10 @@ docs/BusyBox.txt: docs/busybox.pod
+@@ -134,10 +134,10 @@
  	$(Q)-mkdir -p docs
  	$(Q)-pod2text $< > $@
  

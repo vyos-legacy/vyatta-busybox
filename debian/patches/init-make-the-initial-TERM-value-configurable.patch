@@ -1,0 +1,51 @@
+From 1c05303fdc302725093294eb0305adc003d52bcb Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Thu, 27 May 2010 15:46:07 +0200
+Subject: [PATCH 5/9] init: make the initial $TERM value configurable
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ init/Config.src |   12 ++++++++++++
+ init/init.c     |    2 +-
+ 2 files changed, 13 insertions(+), 1 deletions(-)
+
+diff --git a/init/Config.src b/init/Config.src
+index 590e298..2cac357 100644
+--- a/init/Config.src
++++ b/init/Config.src
+@@ -89,6 +89,18 @@ config FEATURE_INITRD
+ 	  This does not apply to initramfs, which runs /init as PID 1 and
+ 	  requires no special support.
+ 
++config INIT_TERMINAL_TYPE
++	string "Initial terminal type"
++	default "linux"
++	depends on INIT
++	help
++	  This is the initial value set by init for the TERM environment
++	  variable. This variable is used by programs which make use of
++	  extended terminal capabilities.
++
++	  Note that on Linux, init attempts to detect serial terminal and
++	  sets TERM to "vt102" if one is found.
++
+ config HALT
+ 	bool "poweroff, halt, and reboot"
+ 	default y
+diff --git a/init/init.c b/init/init.c
+index d8bf158..fa1af6d 100644
+--- a/init/init.c
++++ b/init/init.c
+@@ -205,7 +205,7 @@ static void console_init(void)
+ 	} else
+ #endif
+ 	if (!s)
+-		putenv((char*)"TERM=linux");
++		putenv((char*)"TERM=" CONFIG_INIT_TERMINAL_TYPE);
+ }
+ 
+ /* Set terminal settings to reasonable defaults.
+-- 
+1.7.1
+

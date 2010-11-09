@@ -1,0 +1,27 @@
+From 5a71fb82025d8bbb87a2d0a0851cb4c9cc31e888 Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Thu, 29 Jul 2010 04:29:47 +0200
+Subject: [PATCH 10/12] less: remove misguided dependency on PLATFORM_LINUX
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ miscutils/Config.src |    1 -
+ 1 files changed, 0 insertions(+), 1 deletions(-)
+
+Index: busybox-1.17.1/miscutils/Config.src
+===================================================================
+--- busybox-1.17.1.orig/miscutils/Config.src	2010-08-01 07:33:11.000000000 +0200
++++ busybox-1.17.1/miscutils/Config.src	2010-08-02 00:45:01.000000000 +0200
+@@ -351,11 +351,6 @@
+ config LESS
+ 	bool "less"
+ 	default y
+-	depends on PLATFORM_LINUX
+-	depends on PLATFORM_LINUX
+-	depends on PLATFORM_LINUX
+-	depends on PLATFORM_LINUX
+-	depends on PLATFORM_LINUX
+ 	help
+ 	  'less' is a pager, meaning that it displays text files. It possesses
+ 	  a wide array of features, and is an improvement over 'more'.

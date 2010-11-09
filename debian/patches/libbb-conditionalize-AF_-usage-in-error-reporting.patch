@@ -1,0 +1,44 @@
+From 29885114a5e3d22ee7aa3ab0e373e00e7cff443c Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Thu, 27 May 2010 15:39:24 +0200
+Subject: [PATCH 8/9] libbb: conditionalize AF_* usage in error reporting
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ libbb/xfuncs_printf.c |    4 ++++
+ networking/Config.src |    1 -
+ 2 files changed, 4 insertions(+), 1 deletions(-)
+
+diff --git a/libbb/xfuncs_printf.c b/libbb/xfuncs_printf.c
+index 7069a7c..91f7ba2 100644
+--- a/libbb/xfuncs_printf.c
++++ b/libbb/xfuncs_printf.c
+@@ -387,8 +387,12 @@ int FAST_FUNC xsocket(int domain, int type, int protocol)
+ 		/* Hijack vaguely related config option */
+ #if ENABLE_VERBOSE_RESOLUTION_ERRORS
+ 		const char *s = "INET";
++# ifdef AF_PACKET
+ 		if (domain == AF_PACKET) s = "PACKET";
++# endif
++# ifdef AF_NETLINK
+ 		if (domain == AF_NETLINK) s = "NETLINK";
++# endif
+ IF_FEATURE_IPV6(if (domain == AF_INET6) s = "INET6";)
+ 		bb_perror_msg_and_die("socket(AF_%s,%d,%d)", s, type, protocol);
+ #else
+diff --git a/networking/Config.src b/networking/Config.src
+index 26c59e7..fc613e8 100644
+--- a/networking/Config.src
++++ b/networking/Config.src
+@@ -43,7 +43,6 @@ config FEATURE_PREFER_IPV4_ADDRESS
+ config VERBOSE_RESOLUTION_ERRORS
+ 	bool "Verbose resolution errors"
+ 	default n
+-	depends on PLATFORM_LINUX #because of xsocket() in libbb/xfuncs_prinf.c
+ 	help
+ 	  Enable if you are not satisfied with simplistic
+ 	  "can't resolve 'hostname.com'" and want to know more.
+-- 
+1.7.1
+

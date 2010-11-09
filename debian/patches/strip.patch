@@ -1,6 +1,6 @@
---- a/Makefile
-+++ b/Makefile
-@@ -690,20 +690,10 @@
+--- a/Makefile	2010-11-08 15:47:22.089324567 -0800
++++ b/Makefile	2010-11-08 15:49:35.218010005 -0800
+@@ -711,20 +711,10 @@ debug_kallsyms: .tmp_map$(last_kallsyms)
  endif # ifdef CONFIG_KALLSYMS
  
  # busybox image - including updated kernel symbols

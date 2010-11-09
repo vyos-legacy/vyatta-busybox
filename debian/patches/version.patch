@@ -1,5 +1,5 @@
---- a/Makefile.flags
-+++ b/Makefile.flags
+--- a/Makefile.flags	2010-11-08 15:47:22.173319952 -0800
++++ b/Makefile.flags	2010-11-08 15:49:32.190176371 -0800
 @@ -4,6 +4,11 @@
  
  BB_VER = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
@@ -12,7 +12,7 @@
  SKIP_STRIP = n
  
  # -std=gnu99 needed for [U]LLONG_MAX on some systems
-@@ -15,7 +20,7 @@
+@@ -15,7 +20,7 @@ CPPFLAGS += \
  	-include include/autoconf.h \
  	-D_GNU_SOURCE -DNDEBUG \
  	$(if $(CONFIG_LFS),-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64) \

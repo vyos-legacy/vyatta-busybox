@@ -1,0 +1,915 @@
+From 1d7266d3b59be361763dab61f680103bbb70f3e9 Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Mon, 19 Jul 2010 00:44:56 +0200
+Subject: [PATCH 2/9] mark Linux-specific configuration options
+
+PLATFORM_LINUX is used as a dependency for applets or features
+which require Linux-specific interfaces.
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ Config.in                     |   12 ++++++++++++
+ console-tools/Config.src      |   13 +++++++++++++
+ coreutils/Config.src          |    2 ++
+ coreutils/date.c              |    2 +-
+ e2fsprogs/Config.src          |    1 +
+ init/Config.src               |    2 ++
+ init/bootchartd.c             |    1 +
+ libbb/Config.src              |    1 +
+ loginutils/Config.src         |    3 +++
+ miscutils/Config.src          |   19 ++++++++++++++++++-
+ miscutils/conspy.c            |    1 +
+ miscutils/ubi_attach_detach.c |    2 ++
+ modutils/Config.src           |    1 +
+ networking/Config.src         |   23 ++++++++++++++++++++++-
+ networking/udhcp/Config.src   |    2 ++
+ procps/Config.src             |    4 +++-
+ shell/cttyhack.c              |    1 +
+ sysklogd/Config.src           |    1 +
+ util-linux/Config.src         |   27 +++++++++++++++++++++++++++
+ 19 files changed, 114 insertions(+), 4 deletions(-)
+
+Index: busybox-1.17.1/Config.in
+===================================================================
+--- busybox-1.17.1.orig/Config.in	2010-08-01 05:24:36.000000000 +0200
++++ busybox-1.17.1/Config.in	2010-08-01 05:32:43.000000000 +0200
+@@ -47,6 +47,17 @@
+ 	  compiler other than gcc.
+ 	  If you do use gcc, this option may needlessly increase code size.
+ 
++config PLATFORM_LINUX
++	bool "Enable Linux-specific applets and features"
++	default y
++	help
++	  For the most part, busybox requires only POSIX compatibility
++	  from the target system, but some applets and features use
++	  Linux-specific interfaces.
++
++	  Answering 'N' here will disable such applets and hide the
++	  corresponding configuration options.
++
+ choice
+ 	prompt "Buffer allocation policy"
+ 	default FEATURE_BUFFERS_USE_MALLOC
+@@ -353,6 +364,7 @@
+ config SELINUX
+ 	bool "Support NSA Security Enhanced Linux"
+ 	default n
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Enable support for SELinux in applets ls, ps, and id. Also provide
+ 	  the option of compiling in SELinux applets.
+Index: busybox-1.17.1/console-tools/Config.src
+===================================================================
+--- busybox-1.17.1.orig/console-tools/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/console-tools/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -10,6 +10,7 @@
+ config CHVT
+ 	bool "chvt"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program is used to change to another terminal.
+ 	  Example: chvt 4 (change to terminal /dev/tty4)
+@@ -17,6 +18,7 @@
+ config FGCONSOLE
+ 	bool "fgconsole"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program prints active (foreground) console number.
+ 
+@@ -29,12 +31,14 @@
+ config DEALLOCVT
+ 	bool "deallocvt"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program deallocates unused virtual consoles.
+ 
+ config DUMPKMAP
+ 	bool "dumpkmap"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program dumps the kernel's keyboard translation table to
+ 	  stdout, in binary format. You can then use loadkmap to load it.
+@@ -42,18 +46,21 @@
+ config KBD_MODE
+ 	bool "kbd_mode"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program reports and sets keyboard mode.
+ 
+ config LOADFONT
+ 	bool "loadfont"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program loads a console font from standard input.
+ 
+ config LOADKMAP
+ 	bool "loadkmap"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program loads a keyboard translation table from
+ 	  standard input.
+@@ -61,6 +68,7 @@
+ config OPENVT
+ 	bool "openvt"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program is used to start a command on an unused
+ 	  virtual terminal.
+@@ -92,6 +100,7 @@
+ config SETCONSOLE
+ 	bool "setconsole"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program redirects the system console to another device,
+ 	  like the current tty while logged in via telnet.
+@@ -106,6 +115,7 @@
+ config SETFONT
+ 	bool "setfont"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Allows to load console screen map. Useful for i18n.
+ 
+@@ -127,6 +137,7 @@
+ config SETKEYCODES
+ 	bool "setkeycodes"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program loads entries into the kernel's scancode-to-keycode
+ 	  map, allowing unusual keyboards to generate usable keycodes.
+@@ -134,12 +145,14 @@
+ config SETLOGCONS
+ 	bool "setlogcons"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This program redirects the output console of kernel messages.
+ 
+ config SHOWKEY
+ 	bool "showkey"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Shows keys pressed.
+ 
+Index: busybox-1.17.1/coreutils/Config.src
+===================================================================
+--- busybox-1.17.1.orig/coreutils/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/coreutils/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -591,6 +591,7 @@
+ config STAT
+ 	bool "stat"
+ 	default y
++	depends on PLATFORM_LINUX # statfs()
+ 	help
+ 	  display file or filesystem status.
+ 
+@@ -606,6 +607,7 @@
+ config STTY
+ 	bool "stty"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  stty is used to change and print terminal line settings.
+ 
+Index: busybox-1.17.1/coreutils/date.c
+===================================================================
+--- busybox-1.17.1.orig/coreutils/date.c	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/coreutils/date.c	2010-08-01 05:32:43.000000000 +0200
+@@ -72,7 +72,7 @@
+ //config:config FEATURE_DATE_NANO
+ //config:	bool "Support %[num]N nanosecond format specifier"
+ //config:	default n
+-//config:	depends on DATE
++//config:	depends on DATE && PLATFORM_LINUX # syscall(__NR_clock_gettime)
+ //config:	help
+ //config:	  Support %[num]N format specifier. Adds ~250 bytes of code.
+ //config:
+Index: busybox-1.17.1/e2fsprogs/Config.src
+===================================================================
+--- busybox-1.17.1.orig/e2fsprogs/Config.src	2010-07-25 00:12:56.000000000 +0200
++++ busybox-1.17.1/e2fsprogs/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -33,6 +33,7 @@
+ config LSATTR
+ 	bool "lsattr"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  lsattr lists the file attributes on a second extended file system.
+ 
+Index: busybox-1.17.1/init/Config.src
+===================================================================
+--- busybox-1.17.1.orig/init/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/init/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -10,6 +10,7 @@
+ config INIT
+ 	bool "init"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select FEATURE_SYSLOG
+ 	help
+ 	  init is the first program run when the system boots.
+@@ -92,6 +93,7 @@
+ config HALT
+ 	bool "poweroff, halt, and reboot"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Stop all processes and either halt, reboot, or power off the system.
+ 
+Index: busybox-1.17.1/init/bootchartd.c
+===================================================================
+--- busybox-1.17.1.orig/init/bootchartd.c	2010-07-25 00:12:56.000000000 +0200
++++ busybox-1.17.1/init/bootchartd.c	2010-08-01 05:32:43.000000000 +0200
+@@ -6,6 +6,7 @@
+ //config:config BOOTCHARTD
+ //config:	bool "bootchartd"
+ //config:	default y
++//config:	depends on PLATFORM_LINUX
+ //config:	help
+ //config:	  bootchartd is commonly used to profile the boot process
+ //config:	  for the purpose of speeding it up. In this case, it is started
+Index: busybox-1.17.1/libbb/Config.src
+===================================================================
+--- busybox-1.17.1.orig/libbb/Config.src	2010-07-25 00:12:56.000000000 +0200
++++ busybox-1.17.1/libbb/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -153,6 +153,7 @@
+ config MONOTONIC_SYSCALL
+ 	bool "Use clock_gettime(CLOCK_MONOTONIC) syscall"
+ 	default n
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Use clock_gettime(CLOCK_MONOTONIC) syscall for measuring
+ 	  time intervals (time, ping, traceroute etc need this).
+Index: busybox-1.17.1/loginutils/Config.src
+===================================================================
+--- busybox-1.17.1.orig/loginutils/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/loginutils/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -179,6 +179,7 @@
+ config GETTY
+ 	bool "getty"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select FEATURE_SYSLOG
+ 	help
+ 	  getty lets you log in on a tty, it is normally invoked by init.
+@@ -186,6 +187,7 @@
+ config LOGIN
+ 	bool "login"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select FEATURE_SUID
+ 	select FEATURE_SYSLOG
+ 	help
+@@ -295,6 +297,7 @@
+ config VLOCK
+ 	bool "vlock"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select FEATURE_SUID
+ 	help
+ 	  Build the "vlock" applet which allows you to lock (virtual) terminals.
+Index: busybox-1.17.1/miscutils/Config.src
+===================================================================
+--- busybox-1.17.1.orig/miscutils/Config.src	2010-07-25 00:12:56.000000000 +0200
++++ busybox-1.17.1/miscutils/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -10,6 +10,7 @@
+ config ADJTIMEX
+ 	bool "adjtimex"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Adjtimex reads and optionally sets adjustment parameters for
+ 	  the Linux clock adjustment algorithm.
+@@ -24,6 +25,7 @@
+ config BEEP
+ 	bool "beep"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The beep applets beeps in a given freq/Hz.
+ 
+@@ -180,6 +182,7 @@
+ config DEVFSD
+ 	bool "devfsd (obsolete)"
+ 	default n
++	depends on PLATFORM_LINUX
+ 	select FEATURE_SYSLOG
+ 	help
+ 	  This is deprecated and should NOT be used anymore.
+@@ -223,6 +226,7 @@
+ config FEATURE_DEVFS
+ 	bool "Use devfs names for all devices (obsolete)"
+ 	default n
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This is obsolete and should NOT be used anymore.
+ 	  Use linux >= 2.6 (optionally with hotplug) and mdev instead!
+@@ -242,6 +246,7 @@
+ config EJECT
+ 	bool "eject"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Used to eject cdroms. (defaults to /dev/cdrom)
+ 
+@@ -256,6 +261,7 @@
+ config FBSPLASH
+ 	bool "fbsplash"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Shows splash image and progress bar on framebuffer device.
+ 	  Can be used during boot phase of an embedded device. ~2kb.
+@@ -305,6 +311,7 @@
+ config IONICE
+ 	bool "ionice"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Set/set program io scheduling class and priority
+ 	  Requires kernel >= 2.6.13
+@@ -344,6 +351,11 @@
+ config LESS
+ 	bool "less"
+ 	default y
++	depends on PLATFORM_LINUX
++	depends on PLATFORM_LINUX
++	depends on PLATFORM_LINUX
++	depends on PLATFORM_LINUX
++	depends on PLATFORM_LINUX
+ 	help
+ 	  'less' is a pager, meaning that it displays text files. It possesses
+ 	  a wide array of features, and is an improvement over 'more'.
+@@ -410,6 +422,7 @@
+ config HDPARM
+ 	bool "hdparm"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Get/Set hard drive parameters. Primarily intended for ATA
+ 	  drives. Adds about 13k (or around 30k if you enable the
+@@ -526,6 +539,7 @@
+ config RAIDAUTORUN
+ 	bool "raidautorun"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  raidautorun tells the kernel md driver to
+ 	  search and start RAID arrays.
+@@ -533,7 +547,7 @@
+ config READAHEAD
+ 	bool "readahead"
+ 	default y
+-	depends on LFS
++	depends on LFS && PLATFORM_LINUX
+ 	help
+ 	  Preload the files listed on the command line into RAM cache so that
+ 	  subsequent reads on these files will not block on disk I/O.
+@@ -550,6 +564,7 @@
+ config RFKILL
+ 	bool "rfkill"
+ 	default n  # doesn't build on Ubuntu 9.04
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Enable/disable wireless devices.
+ 
+@@ -570,6 +585,7 @@
+ config RX
+ 	bool "rx"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Receive files using the Xmodem protocol.
+ 
+@@ -641,6 +657,7 @@
+ config WATCHDOG
+ 	bool "watchdog"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The watchdog utility is used with hardware or software watchdog
+ 	  device drivers. It opens the specified watchdog device special file
+Index: busybox-1.17.1/miscutils/conspy.c
+===================================================================
+--- busybox-1.17.1.orig/miscutils/conspy.c	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/miscutils/conspy.c	2010-08-01 05:32:43.000000000 +0200
+@@ -17,6 +17,7 @@
+ //config:config CONSPY
+ //config:	bool "conspy"
+ //config:	default n
++//config:	depends on PLATFORM_LINUX
+ //config:	help
+ //config:	  A text-mode VNC like program for Linux virtual terminals.
+ //config:	  example:  conspy NUM      shared access to console num
+Index: busybox-1.17.1/miscutils/ubi_attach_detach.c
+===================================================================
+--- busybox-1.17.1.orig/miscutils/ubi_attach_detach.c	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/miscutils/ubi_attach_detach.c	2010-08-01 05:32:43.000000000 +0200
+@@ -12,12 +12,14 @@
+ //config:config UBIATTACH
+ //config:	bool "ubiattach"
+ //config:	default n
++//config:	depends on PLATFORM_LINUX
+ //config:	help
+ //config:	  Attach MTD device to an UBI device.
+ //config:
+ //config:config UBIDETACH
+ //config:	bool "ubidetach"
+ //config:	default n
++//config:	depends on PLATFORM_LINUX
+ //config:	help
+ //config:	  Detach MTD device from an UBI device.
+ 
+Index: busybox-1.17.1/modutils/Config.src
+===================================================================
+--- busybox-1.17.1.orig/modutils/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/modutils/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -4,6 +4,7 @@
+ #
+ 
+ menu "Linux Module Utilities"
++depends on PLATFORM_LINUX
+ 
+ INSERT
+ 
+Index: busybox-1.17.1/networking/Config.src
+===================================================================
+--- busybox-1.17.1.orig/networking/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/networking/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -43,6 +43,7 @@
+ config VERBOSE_RESOLUTION_ERRORS
+ 	bool "Verbose resolution errors"
+ 	default n
++	depends on PLATFORM_LINUX #because of xsocket() in libbb/xfuncs_prinf.c
+ 	help
+ 	  Enable if you are not satisfied with simplistic
+ 	  "can't resolve 'hostname.com'" and want to know more.
+@@ -51,18 +52,21 @@
+ config ARP
+ 	bool "arp"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Manipulate the system ARP cache.
+ 
+ config ARPING
+ 	bool "arping"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Ping hosts by ARP packets.
+ 
+ config BRCTL
+ 	bool "brctl"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Manage ethernet bridges.
+ 	  Supports addbr/delbr and addif/delif.
+@@ -95,6 +99,7 @@
+ config ETHER_WAKE
+ 	bool "ether-wake"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Send a magic packet to wake up sleeping machines.
+ 
+@@ -269,6 +274,7 @@
+ config IFCONFIG
+ 	bool "ifconfig"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Ifconfig is used to configure the kernel-resident network interfaces.
+ 
+@@ -316,6 +322,7 @@
+ config IFENSLAVE
+ 	bool "ifenslave"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Userspace application to bind several interfaces
+ 	  to a logical interface (use with kernel bonding driver).
+@@ -323,6 +330,7 @@
+ config IFPLUGD
+ 	bool "ifplugd"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Network interface plug detection daemon.
+ 
+@@ -364,7 +372,7 @@
+ config FEATURE_IFUPDOWN_IP_BUILTIN
+ 	bool "Use busybox ip applet"
+ 	default y
+-	depends on FEATURE_IFUPDOWN_IP
++	depends on FEATURE_IFUPDOWN_IP && PLATFORM_LINUX
+ 	select IP
+ 	select FEATURE_IP_ADDRESS
+ 	select FEATURE_IP_LINK
+@@ -483,6 +491,7 @@
+ config IP
+ 	bool "ip"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The "ip" applet is a TCP/IP interface configuration and routing
+ 	  utility. You generally don't need "ip" to use busybox with
+@@ -598,6 +607,7 @@
+ config NAMEIF
+ 	bool "nameif"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select FEATURE_SYSLOG
+ 	help
+ 	  nameif is used to rename network interface by its MAC address.
+@@ -626,6 +636,7 @@
+ config NETSTAT
+ 	bool "netstat"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  netstat prints information about the Linux networking subsystem.
+ 
+@@ -654,6 +665,7 @@
+ config NTPD
+ 	bool "ntpd"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The NTP client/server daemon.
+ 
+@@ -668,6 +680,7 @@
+ config PING
+ 	bool "ping"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  ping uses the ICMP protocol's mandatory ECHO_REQUEST datagram to
+ 	  elicit an ICMP ECHO_RESPONSE from a host or gateway.
+@@ -696,12 +709,14 @@
+ config ROUTE
+ 	bool "route"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Route displays or manipulates the kernel's IP routing tables.
+ 
+ config SLATTACH
+ 	bool "slattach"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  slattach is a small utility to attach network interfaces to serial
+ 	  lines.
+@@ -719,6 +734,7 @@
+ config TCPSVD
+ 	bool "tcpsvd"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  tcpsvd listens on a TCP port and runs a program for each new
+ 	  connection.
+@@ -888,6 +904,7 @@
+ config TRACEROUTE
+ 	bool "traceroute"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Utility to trace the route of IP packets.
+ 
+@@ -924,6 +941,7 @@
+ config TUNCTL
+ 	bool "tunctl"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  tunctl creates or deletes tun devices.
+ 
+@@ -949,6 +967,7 @@
+ config UDPSVD
+ 	bool "udpsvd"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  udpsvd listens on an UDP port and runs a program for each new
+ 	  connection.
+@@ -956,6 +975,7 @@
+ config VCONFIG
+ 	bool "vconfig"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Creates, removes, and configures VLAN interfaces
+ 
+@@ -990,6 +1010,7 @@
+ config ZCIP
+ 	bool "zcip"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select FEATURE_SYSLOG
+ 	help
+ 	  ZCIP provides ZeroConf IPv4 address selection, according to RFC 3927.
+Index: busybox-1.17.1/networking/udhcp/Config.src
+===================================================================
+--- busybox-1.17.1.orig/networking/udhcp/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/networking/udhcp/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -8,6 +8,7 @@
+ config UDHCPD
+ 	bool "udhcp server (udhcpd)"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  udhcpd is a DHCP server geared primarily toward embedded systems,
+ 	  while striving to be fully functional and RFC compliant.
+@@ -51,6 +52,7 @@
+ config UDHCPC
+ 	bool "udhcp client (udhcpc)"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  udhcpc is a DHCP client geared primarily toward embedded systems,
+ 	  while striving to be fully functional and RFC compliant.
+Index: busybox-1.17.1/procps/Config.src
+===================================================================
+--- busybox-1.17.1.orig/procps/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/procps/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -10,6 +10,7 @@
+ config FREE
+ 	bool "free"
+ 	default y
++	depends on PLATFORM_LINUX #sysinfo()
+ 	help
+ 	  free displays the total amount of free and used physical and swap
+ 	  memory in the system, as well as the buffers used by the kernel.
+@@ -104,7 +105,7 @@
+ config FEATURE_PS_TIME
+ 	bool "Enable time and elapsed time output"
+ 	default y
+-	depends on PS && DESKTOP
++	depends on PS && DESKTOP && PLATFORM_LINUX #sysinfo()
+ 	help
+ 	  Support -o time and -o etime output specifiers.
+ 
+@@ -200,6 +201,7 @@
+ config UPTIME
+ 	bool "uptime"
+ 	default y
++	depends on PLATFORM_LINUX #sysinfo()
+ 	help
+ 	  uptime gives a one line display of the current time, how long
+ 	  the system has been running, how many users are currently logged
+Index: busybox-1.17.1/sysklogd/Config.src
+===================================================================
+--- busybox-1.17.1.orig/sysklogd/Config.src	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/sysklogd/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -109,6 +109,7 @@
+ config KLOGD
+ 	bool "klogd"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  klogd is a utility which intercepts and logs all
+ 	  messages from the Linux kernel and sends the messages
+Index: busybox-1.17.1/util-linux/Config.src
+===================================================================
+--- busybox-1.17.1.orig/util-linux/Config.src	2010-07-25 00:12:56.000000000 +0200
++++ busybox-1.17.1/util-linux/Config.src	2010-08-01 05:32:43.000000000 +0200
+@@ -10,6 +10,7 @@
+ config ACPID
+ 	bool "acpid"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  acpid listens to ACPI events coming either in textual form from
+ 	  /proc/acpi/event (though it is marked deprecated it is still widely
+@@ -32,6 +33,7 @@
+ config BLKID
+ 	bool "blkid"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select VOLUMEID
+ 	help
+ 	  Lists labels and UUIDs of all filesystems.
+@@ -41,6 +43,7 @@
+ config DMESG
+ 	bool "dmesg"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  dmesg is used to examine or control the kernel ring buffer. When the
+ 	  Linux kernel prints messages to the system log, they are stored in
+@@ -74,6 +77,7 @@
+ config FBSET
+ 	bool "fbset"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  fbset is used to show or change the settings of a Linux frame buffer
+ 	  device. The frame buffer device provides a simple and unique
+@@ -102,6 +106,7 @@
+ config FDFLUSH
+ 	bool "fdflush"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  fdflush is only needed when changing media on slightly-broken
+ 	  removable media drives. It is used to make Linux believe that a
+@@ -114,12 +119,14 @@
+ config FDFORMAT
+ 	bool "fdformat"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  fdformat is used to low-level format a floppy disk.
+ 
+ config FDISK
+ 	bool "fdisk"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The fdisk utility is used to divide hard disks into one or more
+ 	  logical disks, which are generally called partitions. This utility
+@@ -187,6 +194,7 @@
+ config FINDFS
+ 	bool "findfs"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select VOLUMEID
+ 	help
+ 	  Prints the name of a filesystem with given label or UUID.
+@@ -202,6 +210,7 @@
+ config FREERAMDISK
+ 	bool "freeramdisk"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Linux allows you to create ramdisks. This utility allows you to
+ 	  delete them and completely free all memory that was used for the
+@@ -224,12 +233,14 @@
+ config MKFS_EXT2
+ 	bool "mkfs_ext2"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Utility to create EXT2 filesystems.
+ 
+ config MKFS_MINIX
+ 	bool "mkfs_minix"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The minix filesystem is a nice, small, compact, read-write filesystem
+ 	  with little overhead. If you wish to be able to create minix
+@@ -247,6 +258,7 @@
+ config MKFS_REISER
+ 	bool "mkfs_reiser"
+ 	default n
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Utility to create ReiserFS filesystems.
+ 	  Note: this applet needs a lot of testing and polishing.
+@@ -254,6 +266,7 @@
+ config MKFS_VFAT
+ 	bool "mkfs_vfat"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Utility to create FAT32 filesystems.
+ 
+@@ -302,6 +315,7 @@
+ config HWCLOCK
+ 	bool "hwclock"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The hwclock utility is used to read and set the hardware clock
+ 	  on a system. This is primarily used to set the current time on
+@@ -341,6 +355,7 @@
+ config IPCS
+ 	bool "ipcs"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	select FEATURE_SUID
+ 	help
+ 	  The ipcs utility is used to provide information on the currently
+@@ -349,6 +364,7 @@
+ config LOSETUP
+ 	bool "losetup"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  losetup is used to associate or detach a loop device with a regular
+ 	  file or block device, and to query the status of a loop device. This
+@@ -357,6 +373,7 @@
+ config LSPCI
+ 	bool "lspci"
+ 	default y
++	#depends on PLATFORM_LINUX
+ 	help
+ 	  lspci is a utility for displaying information about PCI buses in the
+ 	  system and devices connected to them.
+@@ -366,6 +383,7 @@
+ config LSUSB
+ 	bool "lsusb"
+ 	default y
++	#depends on PLATFORM_LINUX
+ 	help
+ 	  lsusb is a utility for displaying information about USB buses in the
+ 	  system and devices connected to them.
+@@ -375,6 +393,7 @@
+ config MDEV
+ 	bool "mdev"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  mdev is a mini-udev implementation for dynamically creating device
+ 	  nodes in the /dev directory.
+@@ -473,6 +492,7 @@
+ config MOUNT
+ 	bool "mount"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  All files and filesystems in Unix are arranged into one big directory
+ 	  tree. The 'mount' utility is used to graft a filesystem onto a
+@@ -555,6 +575,7 @@
+ config PIVOT_ROOT
+ 	bool "pivot_root"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The pivot_root utility swaps the mount points for the root filesystem
+ 	  with some other mounted filesystem. This allows you to do all sorts
+@@ -582,12 +603,14 @@
+ config READPROFILE
+ 	bool "readprofile"
+ 	default y
++	#depends on PLATFORM_LINUX
+ 	help
+ 	  This allows you to parse /proc/profile for basic profiling.
+ 
+ config RTCWAKE
+ 	bool "rtcwake"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  Enter a system sleep state until specified wakeup time.
+ 
+@@ -607,6 +630,7 @@
+ config SETARCH
+ 	bool "setarch"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The linux32 utility is used to create a 32bit environment for the
+ 	  specified program (usually a shell). It only makes sense to have
+@@ -616,6 +640,7 @@
+ config SWAPONOFF
+ 	bool "swaponoff"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  This option enables both the 'swapon' and the 'swapoff' utilities.
+ 	  Once you have created some swap space using 'mkswap', you also need
+@@ -634,6 +659,7 @@
+ config SWITCH_ROOT
+ 	bool "switch_root"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  The switch_root utility is used from initramfs to select a new
+ 	  root device. Under initramfs, you have to use this instead of
+@@ -653,6 +679,7 @@
+ config UMOUNT
+ 	bool "umount"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  When you want to remove a mounted filesystem from its current mount
+ 	  point, for example when you are shutting down the system, the
+Index: busybox-1.17.1/shell/Config.src
+===================================================================
+--- busybox-1.17.1.orig/shell/Config.src	2010-08-01 05:33:24.000000000 +0200
++++ busybox-1.17.1/shell/Config.src	2010-08-01 05:33:34.000000000 +0200
+@@ -370,6 +370,7 @@
+ config CTTYHACK
+ 	bool "cttyhack"
+ 	default y
++	depends on PLATFORM_LINUX
+ 	help
+ 	  One common problem reported on the mailing list is "can't access tty;
+ 	  job control turned off" error message which typically appears when

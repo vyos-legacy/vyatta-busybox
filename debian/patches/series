@@ -1,6 +1,8 @@
-doc-man-name.patch
 shell-ash-export-HOME.patch
 applets-fallback.patch
 version.patch
 init-console.patch
 strip.patch
+make_gen_build_files_skip_quilt.patch
+
+# not sent upstream

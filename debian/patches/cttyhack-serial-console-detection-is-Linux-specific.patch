@@ -1,0 +1,60 @@
+From 430ba79c39eeed4725c36e9c2ad61c438c8a5d3e Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Fri, 30 Jul 2010 06:21:21 +0200
+Subject: [PATCH 13/19] cttyhack: serial console detection is Linux-specific
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ shell/cttyhack.c |   15 ++++++++++++---
+ 1 files changed, 12 insertions(+), 3 deletions(-)
+
+Index: busybox-1.17.1/shell/cttyhack.c
+===================================================================
+--- busybox-1.17.1.orig/shell/cttyhack.c	2010-08-01 05:38:31.000000000 +0200
++++ busybox-1.17.1/shell/cttyhack.c	2010-08-01 05:39:26.000000000 +0200
+@@ -6,6 +6,10 @@
+  */
+ #include "libbb.h"
+ 
++#if !defined(__linux__) && !defined(TIOCGSERIAL)
++# warning cttyhack will not be able to detect a controlling tty on this system
++#endif
++
+ /* From <linux/vt.h> */
+ struct vt_stat {
+ 	unsigned short v_active;        /* active vt */
+@@ -59,13 +63,19 @@
+ 		close(fd);
+ 	} else {
+ 		/* We don't have ctty (or don't have "/dev/tty" node...) */
+-		if (ioctl(0, TIOCGSERIAL, &u.sr) == 0) {
++		if (0) {}
++#ifdef TIOCGSERIAL
++		else if (ioctl(0, TIOCGSERIAL, &u.sr) == 0) {
+ 			/* this is a serial console */
+ 			sprintf(console + 8, "S%d", u.sr.line);
+-		} else if (ioctl(0, VT_GETSTATE, &u.vt) == 0) {
++		}
++#endif
++#ifdef __linux__
++		else if (ioctl(0, VT_GETSTATE, &u.vt) == 0) {
+ 			/* this is linux virtual tty */
+ 			sprintf(console + 8, "S%d" + 1, u.vt.v_active);
+ 		}
++#endif
+ 		if (console[8]) {
+ 			fd = xopen(console, O_RDWR);
+ 			//bb_error_msg("switching to '%s'", console);
+Index: busybox-1.17.1/shell/Config.src
+===================================================================
+--- busybox-1.17.1.orig/shell/Config.src	2010-08-01 05:39:44.000000000 +0200
++++ busybox-1.17.1/shell/Config.src	2010-08-01 05:39:49.000000000 +0200
+@@ -370,7 +370,6 @@
+ config CTTYHACK
+ 	bool "cttyhack"
+ 	default y
+-	depends on PLATFORM_LINUX
+ 	help
+ 	  One common problem reported on the mailing list is "can't access tty;
+ 	  job control turned off" error message which typically appears when

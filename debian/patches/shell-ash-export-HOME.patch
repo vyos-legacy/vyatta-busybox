@@ -1,8 +1,8 @@
---- a/shell/ash.c
-+++ b/shell/ash.c
-@@ -1773,7 +1773,7 @@
- 	{ VSTRFIXED|VTEXTFIXED|VUNSET, "MAIL\0"    , changemail      },
- 	{ VSTRFIXED|VTEXTFIXED|VUNSET, "MAILPATH\0", changemail      },
+--- a/shell/ash.c	2010-11-08 15:47:22.313312262 -0800
++++ b/shell/ash.c	2010-11-08 15:49:21.330773052 -0800
+@@ -1895,7 +1895,7 @@ static const struct {
+ 	{ VSTRFIXED|VTEXTFIXED|VUNSET, "MAIL"      , changemail      },
+ 	{ VSTRFIXED|VTEXTFIXED|VUNSET, "MAILPATH"  , changemail      },
  #endif
 -	{ VSTRFIXED|VTEXTFIXED       , bb_PATH_root_path, changepath },
 +	{ VSTRFIXED|VTEXTFIXED|VEXPORT, bb_PATH_root_path, changepath },

@@ -1,0 +1,185 @@
+From 714674e4da3d92c5dd14e00ab30794a895b91eb4 Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Thu, 27 May 2010 15:38:44 +0200
+Subject: [PATCH 4/9] init,halt: portability improvements
+
+* make init and halt use the same RB_* constants for reboot()
+* conditionalize the Linux-specific code
+
+Inspired by init.init.diff from the Debian kFreeBSD patches at:
+http://svn.debian.org/viewsvn/d-i/people/slackydeb/kfreebsd/busybox/1.14/debian
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ init/Config.src |    2 --
+ init/halt.c     |   14 +-------------
+ init/init.c     |   16 ++++++++--------
+ init/reboot.h   |   31 +++++++++++++++++++++++++++++++
+ 4 files changed, 40 insertions(+), 23 deletions(-)
+ create mode 100644 init/reboot.h
+
+Index: busybox-1.17.1/init/Config.src
+===================================================================
+--- busybox-1.17.1.orig/init/Config.src	2010-08-01 05:32:43.000000000 +0200
++++ busybox-1.17.1/init/Config.src	2010-08-01 05:36:47.000000000 +0200
+@@ -10,7 +10,6 @@
+ config INIT
+ 	bool "init"
+ 	default y
+-	depends on PLATFORM_LINUX
+ 	select FEATURE_SYSLOG
+ 	help
+ 	  init is the first program run when the system boots.
+@@ -93,7 +92,6 @@
+ config HALT
+ 	bool "poweroff, halt, and reboot"
+ 	default y
+-	depends on PLATFORM_LINUX
+ 	help
+ 	  Stop all processes and either halt, reboot, or power off the system.
+ 
+Index: busybox-1.17.1/init/halt.c
+===================================================================
+--- busybox-1.17.1.orig/init/halt.c	2010-07-25 00:12:43.000000000 +0200
++++ busybox-1.17.1/init/halt.c	2010-08-01 05:36:47.000000000 +0200
+@@ -8,7 +8,7 @@
+  */
+ 
+ #include "libbb.h"
+-#include <sys/reboot.h>
++#include "reboot.h"
+ 
+ #if ENABLE_FEATURE_WTMP
+ #include <sys/utsname.h>
+@@ -36,18 +36,6 @@
+ #define write_wtmp() ((void)0)
+ #endif
+ 
+-#ifndef RB_HALT_SYSTEM
+-#define RB_HALT_SYSTEM RB_HALT
+-#endif
+-
+-#ifndef RB_POWERDOWN
+-/* Stop system and switch power off if possible.  */
+-# define RB_POWERDOWN   0x4321fedc
+-#endif
+-#ifndef RB_POWER_OFF
+-# define RB_POWER_OFF RB_POWERDOWN
+-#endif
+-
+ 
+ int halt_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
+ int halt_main(int argc UNUSED_PARAM, char **argv)
+Index: busybox-1.17.1/init/init.c
+===================================================================
+--- busybox-1.17.1.orig/init/init.c	2010-08-01 05:36:45.000000000 +0200
++++ busybox-1.17.1/init/init.c	2010-08-01 05:36:47.000000000 +0200
+@@ -12,7 +12,6 @@
+ #include "libbb.h"
+ #include <syslog.h>
+ #include <paths.h>
+-#include <sys/reboot.h>
+ #include <sys/resource.h>
+ #ifdef __linux__
+ #include <linux/vt.h>
+@@ -20,6 +19,7 @@
+ #if ENABLE_FEATURE_UTMP
+ # include <utmp.h> /* DEAD_PROCESS */
+ #endif
++#include "reboot.h" /* reboot() constants */
+ 
+ /* Used only for sanitizing purposes in set_sane_term() below. On systems where
+  * the baud rate is stored in a separate field, we can safely disable them. */
+@@ -97,13 +97,6 @@
+ enum {
+ 	L_LOG = 0x1,
+ 	L_CONSOLE = 0x2,
+-#ifndef RB_HALT_SYSTEM
+-	RB_HALT_SYSTEM = 0xcdef0123, /* FIXME: this overflows enum */
+-	RB_ENABLE_CAD = 0x89abcdef,
+-	RB_DISABLE_CAD = 0,
+-	RB_POWER_OFF = 0x4321fedc,
+-	RB_AUTOBOOT = 0x01234567,
+-#endif
+ };
+ 
+ /* Print a message to the specified device.
+@@ -726,10 +719,12 @@
+ 
+ 		run_shutdown_and_kill_processes();
+ 
++#ifdef RB_ENABLE_CAD
+ 		/* Allow Ctrl-Alt-Del to reboot the system.
+ 		 * This is how kernel sets it up for init, we follow suit.
+ 		 */
+ 		reboot(RB_ENABLE_CAD); /* misnomer */
++#endif
+ 
+ 		if (open_stdio_to_tty(a->terminal)) {
+ 			dbg_message(L_CONSOLE, "Trying to re-exec %s", a->command);
+@@ -872,9 +867,11 @@
+ 		) {
+ 			bb_show_usage();
+ 		}
++#ifdef RB_DISABLE_CAD
+ 		/* Turn off rebooting via CTL-ALT-DEL - we get a
+ 		 * SIGINT on CAD so we can shut things down gracefully... */
+ 		reboot(RB_DISABLE_CAD); /* misnomer */
++#endif
+ 	}
+ 
+ 	/* Figure out where the default console should be */
+@@ -897,6 +894,8 @@
+ 	message(L_CONSOLE | L_LOG, "init started: %s", bb_banner);
+ #endif
+ 
++/* struct sysinfo is linux-specific */
++#ifdef __linux__
+ 	/* Make sure there is enough memory to do something useful. */
+ 	if (ENABLE_SWAPONOFF) {
+ 		struct sysinfo info;
+@@ -912,6 +911,7 @@
+ 			run_actions(SYSINIT);   /* wait and removing */
+ 		}
+ 	}
++#endif
+ 
+ 	/* Check if we are supposed to be in single user mode */
+ 	if (argv[1]
+Index: busybox-1.17.1/init/reboot.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ busybox-1.17.1/init/reboot.h	2010-08-01 05:36:47.000000000 +0200
+@@ -0,0 +1,31 @@
++/*
++ * Definitions related to the reboot() system call,
++ * shared between init.c and halt.c.
++ */
++
++#include <sys/reboot.h>
++
++#ifndef RB_HALT_SYSTEM
++# if defined(__linux__)
++#  define RB_HALT_SYSTEM  0xcdef0123
++#  define RB_ENABLE_CAD   0x89abcdef
++#  define RB_DISABLE_CAD  0
++#  define RB_POWER_OFF    0x4321fedc
++#  define RB_AUTOBOOT     0x01234567
++# elif defined(RB_HALT)
++#  define RB_HALT_SYSTEM  RB_HALT
++# endif
++#endif
++
++/* Stop system and switch power off if possible.  */
++#ifndef RB_POWER_OFF
++# if defined(RB_POWERDOWN)
++#  define RB_POWER_OFF  RB_POWERDOWN
++# elif defined(__linux__)
++#  define RB_POWER_OFF  0x4321fedc
++# else
++#  warning "poweroff unsupported, using halt as fallback"
++#  define RB_POWER_OFF  RB_HALT_SYSTEM
++# endif
++#endif
++

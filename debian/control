@@ -2,7 +2,7 @@ Source: vyatta-busybox
 Priority: optional
 Section: utils
 Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
-Build-Depends: debhelper (>> 5), lsb-release, quilt
+Build-Depends: debhelper (>> 7), lsb-release, quilt
 Standards-Version: 3.7.3
 
 Package: vyatta-busybox
@@ -19,7 +19,7 @@ Description: Tiny utilities for small and embedded systems
  provide the expected functionality and behave very much like their GNU
  counterparts.
  .
- This package installs the BusyBox binary but does not install symlinks
- for any of the supported utilities. You can use /bin/busybox --install
- to install BusyBox to the current directory (you do not want to do this
- in / on your Debian system!).
+ This package installs the BusyBox binary but does not install
+ symlinks for any of the supported utilities. Some of the utilities
+ can be used in the system by installing the busybox-syslogd,
+ busybox-udhcpc or busybox-udhcpd packages.

@@ -1,23 +1,18 @@
---- a/scripts/defconfig
-+++ b/scripts/defconfig
-@@ -33,7 +33,7 @@
- CONFIG_FEATURE_SUID_CONFIG_QUIET=y
- # CONFIG_SELINUX is not set
- # CONFIG_FEATURE_PREFER_APPLETS is not set
--CONFIG_BUSYBOX_EXEC_PATH="/proc/self/exe"
-+CONFIG_BUSYBOX_EXEC_PATH="/bin/busybox"
- CONFIG_FEATURE_SYSLOG=y
- CONFIG_FEATURE_HAVE_RPC=y
+--- a/shell/ash.c	2010-11-08 15:49:21.330773052 -0800
++++ b/shell/ash.c	2010-11-08 15:49:26.410493943 -0800
+@@ -7338,25 +7338,10 @@ static int builtinloc = -1;     /* index
  
---- a/shell/ash.c
-+++ b/shell/ash.c
-@@ -7169,20 +7169,6 @@
+ 
+ static void
+-tryexec(IF_FEATURE_SH_STANDALONE(int applet_no,) char *cmd, char **argv, char **envp)
++tryexec(IF_FEATURE_SH_STANDALONE(int applet_no UNUSED_PARAM,) char *cmd, char **argv, char **envp)
  {
  	int repeated = 0;
  
 -#if ENABLE_FEATURE_SH_STANDALONE
 -	if (applet_no >= 0) {
 -		if (APPLET_IS_NOEXEC(applet_no)) {
+-			clearenv();
 -			while (*envp)
 -				putenv(*envp++);
 -			run_applet_no_and_exit(applet_no, argv);
@@ -32,10 +27,10 @@
   repeat:
  #ifdef SYSV
  	do {
-@@ -7232,14 +7218,14 @@
+@@ -7406,14 +7391,14 @@ shellexec(char **argv, const char *path,
  
  	clearredir(/*drop:*/ 1);
- 	envp = listvars(VEXPORT, VUNSET, 0);
+ 	envp = listvars(VEXPORT, VUNSET, /*end:*/ NULL);
 -	if (strchr(argv[0], '/') != NULL
 -#if ENABLE_FEATURE_SH_STANDALONE
 -	 || (applet_no = find_applet_by_name(argv[0])) >= 0
@@ -52,8 +47,8 @@
  		e = ENOENT;
  		while ((cmdname = path_advance(&path, argv[0])) != NULL) {
  			if (--idx < 0 && pathopt == NULL) {
---- a/libbb/execable.c
-+++ b/libbb/execable.c
+--- a/libbb/execable.c	2010-11-08 15:47:22.217317535 -0800
++++ b/libbb/execable.c	2010-11-08 15:49:26.410493943 -0800
 @@ -9,6 +9,9 @@
  
  #include "libbb.h"
@@ -64,7 +59,7 @@
  /* check if path points to an executable file;
   * return 1 if found;
   * return 0 otherwise;
-@@ -68,11 +71,59 @@
+@@ -68,12 +71,60 @@ int FAST_FUNC exists_execable(const char
  }
  
  #if ENABLE_FEATURE_PREFER_APPLETS
@@ -126,11 +121,12 @@
 +	return ret;
  }
  #endif
---- a/libbb/messages.c
-+++ b/libbb/messages.c
-@@ -44,6 +44,15 @@
- const char bb_path_motd_file[] ALIGN1 = "/etc/motd";
- const char bb_dev_null[] ALIGN1 = "/dev/null";
+ 
+--- a/libbb/messages.c	2010-11-08 15:47:22.229316875 -0800
++++ b/libbb/messages.c	2010-11-08 15:49:26.410493943 -0800
+@@ -36,6 +36,15 @@ const char bb_msg_standard_output[] ALIG
+ const char bb_hexdigits_upcase[] ALIGN1 = "0123456789ABCDEF";
+ 
  const char bb_busybox_exec_path[] ALIGN1 = CONFIG_BUSYBOX_EXEC_PATH;
 +const char *bb_busybox_exec_paths[] ALIGN1 = {
 +#ifdef __linux__
@@ -144,9 +140,9 @@
  const char bb_default_login_shell[] ALIGN1 = LIBBB_DEFAULT_LOGIN_SHELL;
  /* util-linux manpage says /sbin:/bin:/usr/sbin:/usr/bin,
   * but I want to save a few bytes here. Check libbb.h before changing! */
---- a/include/libbb.h
-+++ b/include/libbb.h
-@@ -758,11 +758,11 @@
+--- a/include/libbb.h	2010-11-08 15:47:22.241316216 -0800
++++ b/include/libbb.h	2010-11-08 15:49:26.414493723 -0800
+@@ -842,11 +842,11 @@ int exists_execable(const char *filename
   * but it may exec busybox and call applet instead of searching PATH.
   */
  #if ENABLE_FEATURE_PREFER_APPLETS
@@ -162,17 +158,17 @@
  #else
  #define BB_EXECVP(prog,cmd)     execvp(prog,cmd)
  #define BB_EXECLP(prog,cmd,...) execlp(prog,cmd, __VA_ARGS__)
-@@ -1455,6 +1455,7 @@
- extern const char bb_path_wtmp_file[];
- extern const char bb_dev_null[];
+@@ -1612,6 +1612,7 @@ extern const char bb_path_wtmp_file[];
+ 
+ #define bb_dev_null "/dev/null"
  extern const char bb_busybox_exec_path[];
 +extern const char *bb_busybox_exec_paths[];
  /* util-linux manpage says /sbin:/bin:/usr/sbin:/usr/bin,
   * but I want to save a few bytes here */
  extern const char bb_PATH_root_path[]; /* "PATH=/sbin:/usr/sbin:/bin:/usr/bin" */
---- a/Config.in
-+++ b/Config.in
-@@ -255,13 +255,10 @@
+--- a/Config.in	2010-11-08 15:47:22.257315338 -0800
++++ b/Config.in	2010-11-08 15:49:26.414493723 -0800
+@@ -411,13 +411,10 @@ config FEATURE_PREFER_APPLETS
  
  config BUSYBOX_EXEC_PATH
  	string "Path to BusyBox executable"
@@ -188,3 +184,14 @@
  
  # These are auto-selected by other options
  
+--- a/coreutils/chroot.c	2010-11-08 15:28:12.504596996 -0800
++++ b/coreutils/chroot.c	2010-11-08 15:49:26.418493503 -0800
+@@ -30,5 +30,7 @@ int chroot_main(int argc UNUSED_PARAM, c
+ 		argv[1] = (char *) "-i";
+ 	}
+ 
+-	BB_EXECVP_or_die(argv);
++	execvp(argv[0], argv);
++	xfunc_error_retval = (errno == ENOENT) ? 127 : 126;
++	bb_perror_msg_and_die("can't execute '%s'", argv[0]);
+ }

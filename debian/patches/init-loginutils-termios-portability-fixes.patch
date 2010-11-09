@@ -1,0 +1,199 @@
+From f812eace1863feeac64dc8af27f4ab0f98119618 Mon Sep 17 00:00:00 2001
+From: Jeremie Koenig <jk@jk.fr.eu.org>
+Date: Thu, 27 May 2010 15:37:32 +0200
+Subject: [PATCH 3/9] init,loginutils: termios portability fixes
+
+Signed-off-by: Jeremie Koenig <jk@jk.fr.eu.org>
+Signed-off-by: Denys Vlasenko <vda.linux@googlemail.com>
+---
+ init/init.c           |   17 ++++++++++++++++-
+ loginutils/Config.src |    2 --
+ loginutils/getty.c    |   27 ++++++++++++++-------------
+ loginutils/login.c    |    2 +-
+ 4 files changed, 31 insertions(+), 17 deletions(-)
+
+diff --git a/init/init.c b/init/init.c
+index 2eb8f1a..1388c75 100644
+--- a/init/init.c
++++ b/init/init.c
+@@ -14,11 +14,19 @@
+ #include <paths.h>
+ #include <sys/reboot.h>
+ #include <sys/resource.h>
++#ifdef __linux__
+ #include <linux/vt.h>
++#endif
+ #if ENABLE_FEATURE_UTMP
+ # include <utmp.h> /* DEAD_PROCESS */
+ #endif
+ 
++/* Used only for sanitizing purposes in set_sane_term() below. On systems where
++ * the baud rate is stored in a separate field, we can safely disable them. */
++#ifndef CBAUD
++# define CBAUD 0
++# define CBAUDEX 0
++#endif
+ 
+ /* Was a CONFIG_xxx option. A lot of people were building
+  * not fully functional init by switching it on! */
+@@ -166,7 +174,9 @@ static void message(int where, const char *fmt, ...)
+ 
+ static void console_init(void)
+ {
++#ifdef VT_OPENQRY
+ 	int vtno;
++#endif
+ 	char *s;
+ 
+ 	s = getenv("CONSOLE");
+@@ -190,6 +200,7 @@ static void console_init(void)
+ 	}
+ 
+ 	s = getenv("TERM");
++#ifdef VT_OPENQRY
+ 	if (ioctl(STDIN_FILENO, VT_OPENQRY, &vtno) != 0) {
+ 		/* Not a linux terminal, probably serial console.
+ 		 * Force the TERM setting to vt102
+@@ -198,7 +209,9 @@ static void console_init(void)
+ 			putenv((char*)"TERM=vt102");
+ 		if (!ENABLE_FEATURE_INIT_SYSLOG)
+ 			log_console = NULL;
+-	} else if (!s)
++	} else
++#endif
++	if (!s)
+ 		putenv((char*)"TERM=linux");
+ }
+ 
+@@ -220,8 +233,10 @@ static void set_sane_term(void)
+ 	tty.c_cc[VSTOP] = 19;	/* C-s */
+ 	tty.c_cc[VSUSP] = 26;	/* C-z */
+ 
++#ifdef __linux__
+ 	/* use line discipline 0 */
+ 	tty.c_line = 0;
++#endif
+ 
+ 	/* Make it be sane */
+ 	tty.c_cflag &= CBAUD | CBAUDEX | CSIZE | CSTOPB | PARENB | PARODD;
+diff --git a/loginutils/Config.src b/loginutils/Config.src
+index 425d041..6ec2893 100644
+--- a/loginutils/Config.src
++++ b/loginutils/Config.src
+@@ -179,7 +179,6 @@ config DELUSER
+ config GETTY
+ 	bool "getty"
+ 	default y
+-	depends on PLATFORM_LINUX
+ 	select FEATURE_SYSLOG
+ 	help
+ 	  getty lets you log in on a tty, it is normally invoked by init.
+@@ -187,7 +186,6 @@ config GETTY
+ config LOGIN
+ 	bool "login"
+ 	default y
+-	depends on PLATFORM_LINUX
+ 	select FEATURE_SUID
+ 	select FEATURE_SYSLOG
+ 	help
+diff --git a/loginutils/getty.c b/loginutils/getty.c
+index a5e8e90..7f04d33 100644
+--- a/loginutils/getty.c
++++ b/loginutils/getty.c
+@@ -282,10 +282,8 @@ static void termios_init(struct termios *tp, int speed, struct options *op)
+ 	 * reads will be done in raw mode anyway. Errors will be dealt with
+ 	 * later on.
+ 	 */
+-#ifdef __linux__
+ 	/* flush input and output queues, important for modems! */
+-	ioctl(0, TCFLSH, TCIOFLUSH); /* tcflush(0, TCIOFLUSH)? - same */
+-#endif
++	tcflush(0, TCIOFLUSH);
+ 	ispeed = ospeed = speed;
+ 	if (speed == B0) {
+ 		/* Speed was specified as "0" on command line.
+@@ -299,10 +297,13 @@ static void termios_init(struct termios *tp, int speed, struct options *op)
+ 	cfsetispeed(tp, ispeed);
+ 	cfsetospeed(tp, ospeed);
+ 
+-	tp->c_iflag = tp->c_lflag = tp->c_line = 0;
++	tp->c_iflag = tp->c_lflag = 0;
+ 	tp->c_oflag = OPOST | ONLCR;
+ 	tp->c_cc[VMIN] = 1;
+ 	tp->c_cc[VTIME] = 0;
++#ifdef __linux__
++	tp->c_line = 0;
++#endif
+ 
+ 	/* Optionally enable hardware flow control */
+ #ifdef CRTSCTS
+@@ -360,10 +361,8 @@ static void auto_baud(char *buf, unsigned size_buf, struct termios *tp)
+ 		for (bp = buf; bp < buf + nread; bp++) {
+ 			if (isdigit(*bp)) {
+ 				speed = bcode(bp);
+-				if (speed > 0) {
+-					tp->c_cflag &= ~CBAUD;
+-					tp->c_cflag |= speed;
+-				}
++				if (speed > 0)
++					cfsetspeed(tp, speed);
+ 				break;
+ 			}
+ 		}
+@@ -417,7 +416,7 @@ static char *get_logname(char *logname, unsigned size_logname,
+ 
+ 	/* Flush pending input (esp. after parsing or switching the baud rate). */
+ 	sleep(1);
+-	ioctl(0, TCFLSH, TCIFLUSH); /* tcflush(0, TCIOFLUSH)? - same */
++	tcflush(0, TCIOFLUSH);
+ 
+ 	/* Prompt for and read a login name. */
+ 	logname[0] = '\0';
+@@ -526,7 +525,9 @@ static void termios_final(struct options *op, struct termios *tp, struct chardat
+ 	tp->c_cc[VQUIT] = DEF_QUIT;     /* default quit */
+ 	tp->c_cc[VEOF] = DEF_EOF;       /* default EOF character */
+ 	tp->c_cc[VEOL] = DEF_EOL;
++#ifdef VSWTC
+ 	tp->c_cc[VSWTC] = DEF_SWITCH;   /* default switch character */
++#endif
+ 
+ 	/* Account for special characters seen in input. */
+ 	if (cp->eol == CR) {
+@@ -572,8 +573,8 @@ static void termios_final(struct options *op, struct termios *tp, struct chardat
+ #endif
+ 
+ 	/* Finally, make the new settings effective */
+-	/* It's tcsetattr_stdin_TCSANOW() + error check */
+-	ioctl_or_perror_and_die(0, TCSETS, tp, "%s: TCSETS", op->tty);
++	if (tcsetattr_stdin_TCSANOW(tp) < 0)
++		bb_perror_msg_and_die("%s: tcsetattr", op->tty);
+ }
+ 
+ int getty_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
+@@ -650,8 +651,8 @@ int getty_main(int argc UNUSED_PARAM, char **argv)
+ 	 * by patching the SunOS kernel variable "zsadtrlow" to a larger value;
+ 	 * 5 seconds seems to be a good value.
+ 	 */
+-	/* tcgetattr() + error check */
+-	ioctl_or_perror_and_die(0, TCGETS, &termios, "%s: TCGETS", options.tty);
++	if (tcgetattr(0, &termios) < 0)
++		bb_perror_msg_and_die("%s: tcgetattr", options.tty);
+ 
+ 	pid = getpid();
+ #ifdef __linux__
+diff --git a/loginutils/login.c b/loginutils/login.c
+index 88ed0af..1001248 100644
+--- a/loginutils/login.c
++++ b/loginutils/login.c
+@@ -264,7 +264,7 @@ int login_main(int argc UNUSED_PARAM, char **argv)
+ 
+ 	while (1) {
+ 		/* flush away any type-ahead (as getty does) */
+-		ioctl(0, TCFLSH, TCIFLUSH);
++		tcflush(0, TCIFLUSH);
+ 
+ 		if (!username[0])
+ 			get_username_or_die(username, sizeof(username));
+-- 
+1.7.1
+
