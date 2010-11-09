@@ -32,7 +32,7 @@ $(STAMPS_DIR)/setup_%: $(STAMPS_DIR)/patch
 	$(MAKE) -C '$(DIR)' oldconfig
 	touch $@
 
-build: $(STAMPS_DIR)/build_deb $(STAMPS_DIR)/build_static $(STAMPS_DIR)/build_udeb
+build: $(STAMPS_DIR)/build_deb
 
 $(STAMPS_DIR)/build_%: DIR=$(BUILD_DIR)/build_$*
 $(STAMPS_DIR)/build_%: $(STAMPS_DIR)/setup_%
@@ -56,12 +56,13 @@ clean:
 	rm -rf $(BUILD_DIR) $(STAMPS_DIR)
 	dh_clean
 
-binary-indep: binary-indep_busybox-syslogd binary-indep_udhcpc binary-indep_udhcpd
+binary-indep:
+	rm -f debian/files
 
-binary-arch: binary-arch_busybox binary-arch_busybox-static binary-arch_busybox-udeb
+binary-arch: binary-arch_busybox
 
 binary-arch_busybox: DIR = $(BUILD_DIR)/build_deb
-binary-arch_busybox: export DH_OPTIONS = -pbusybox
+binary-arch_busybox: export DH_OPTIONS = -pvyatta-busybox
 binary-arch_busybox: $(STAMPS_DIR)/build_deb
 	dh_testdir
 	dh_testroot
@@ -70,7 +71,7 @@ binary-arch_busybox: $(STAMPS_DIR)/build_deb
 	@$(MAKE) -f debian/rules binary-arch_all
 
 binary-arch_busybox-static: DIR = $(BUILD_DIR)/build_static
-binary-arch_busybox-static: export DH_OPTIONS = -pbusybox-static
+binary-arch_busybox-static: export DH_OPTIONS = -pvyatta-busybox-static
 binary-arch_busybox-static: $(STAMPS_DIR)/build_static
 	dh_testdir
 	dh_testroot
@@ -79,7 +80,7 @@ binary-arch_busybox-static: $(STAMPS_DIR)/build_static
 	@$(MAKE) -f debian/rules binary-arch_all
 
 binary-arch_busybox-udeb: DIR = $(BUILD_DIR)/build_udeb
-binary-arch_busybox-udeb: export DH_OPTIONS = -pbusybox-udeb
+binary-arch_busybox-udeb: export DH_OPTIONS = -pvyatta-busybox-udeb
 binary-arch_busybox-udeb: $(STAMPS_DIR)/build_udeb
 	dh_testdir
 	dh_testroot
@@ -100,7 +101,11 @@ binary-arch_all:
 	dh_fixperms
 	dh_installdeb
 	dh_shlibdeps
-	dh_gencontrol
+	if [ -f "../.VYATTA_DEV_BUILD" ]; then \
+		dh_gencontrol -- -v999.dev; \
+	else \
+		dh_gencontrol; \
+	fi
 	dh_md5sums
 	dh_builddeb
 
