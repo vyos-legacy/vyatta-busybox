@@ -1,3 +1,9 @@
+vyatta-busybox (1.18.0-1+vyatta+3) unstable; urgency=low
+
+  * Merge branch 'mendocino' of vm:rel/vyatta-busybox into mendocino
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Fri, 19 Nov 2010 16:56:30 -0800
+
 vyatta-busybox (1.18.0-1+vyatta+2) unstable; urgency=low
 
   * Update debian rules to build vyatta version
