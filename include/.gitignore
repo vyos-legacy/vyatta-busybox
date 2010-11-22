@@ -1,6 +1,7 @@
-/config
-
-/applet_tables.h
-/autoconf.h
-/bbconfigopts.h
-/usage_compressed.h
+config
+applets.h
+usage.h
+applet_tables.h
+autoconf.h
+bbconfigopts.h
+usage_compressed.h

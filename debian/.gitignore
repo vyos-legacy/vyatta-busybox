@@ -3,5 +3,11 @@ build
 files
 stamps
 vyatta-busybox
+busybox-static
+busybox-syslogd
+busybox-udeb
+busybox
+udhcpc
+udhcpd
 *.substvars
 *.debhelper

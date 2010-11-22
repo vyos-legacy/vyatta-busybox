@@ -17,8 +17,8 @@ Config.in
 #
 # Normal output
 #
-/busybox
-/busybox_unstripped*
+busybox
+busybox_unstripped*
 
 #
 # Backups / patches
@@ -26,7 +26,7 @@ Config.in
 *~
 *.orig
 *.rej
-/*.patch
+*.patch
 
 #
 # debugging stuff
@@ -34,4 +34,3 @@ Config.in
 core
 .gdb_history
 .gdbinit
-
