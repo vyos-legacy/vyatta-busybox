@@ -1,3 +1,10 @@
+vyatta-busybox (1.18.0-1+vyatta+4) unstable; urgency=low
+
+  * Proper fix for nc -v bug
+  * update gitignore files
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Mon, 22 Nov 2010 09:24:32 -0800
+
 vyatta-busybox (1.18.0-1+vyatta+3) unstable; urgency=low
 
   * Merge branch 'mendocino' of vm:rel/vyatta-busybox into mendocino
