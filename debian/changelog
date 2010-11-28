@@ -1,3 +1,9 @@
+vyatta-busybox (1.18.0-1+vyatta+5) unstable; urgency=low
+
+  * Telnetd: fix pid in utmp record
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Sun, 28 Nov 2010 15:12:33 -0800
+
 vyatta-busybox (1.18.0-1+vyatta+4) unstable; urgency=low
 
   * Proper fix for nc -v bug
