@@ -321,7 +321,7 @@ make_new_session(
 			hostname = xmalloc_sockaddr2dotted(&lsa->u.sa);
 			free(lsa);
 		}
-		write_new_utmp(pid, LOGIN_PROCESS, tty_name, /*username:*/ "LOGIN", hostname);
+		write_new_utmp(getpid(), LOGIN_PROCESS, tty_name, /*username:*/ "LOGIN", hostname);
 		free(hostname);
 	}
 
