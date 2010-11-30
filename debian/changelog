@@ -1,3 +1,9 @@
+vyatta-busybox (1.19.0-1+vyatta+2) unstable; urgency=low
+
+  * Update debian patches
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Tue, 30 Nov 2010 09:24:39 -0800
+
 vyatta-busybox (1.19.0-1+vyatta+1) unstable; urgency=low
 
   [ Lauri Kasanen ]
