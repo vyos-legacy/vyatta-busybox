@@ -1,5 +1,5 @@
---- a/init/init.c	2010-11-08 15:47:22.133322149 -0800
-+++ b/init/init.c	2010-11-08 15:49:33.658095715 -0800
+--- a/init/init.c	2010-11-30 09:15:30.772252114 -0800
++++ b/init/init.c	2010-11-30 09:19:00.906350490 -0800
 @@ -562,6 +562,8 @@ static void run_actions(int action_type)
  	for (a = init_action_list; a; a = a->next) {
  		if (!(a->action_type & action_type))

@@ -1,7 +1,7 @@
---- a/scripts/gen_build_files.sh	2010-11-08 15:28:12.000000000 -0800
-+++ b/scripts/gen_build_files.sh	2010-11-08 15:50:28.899064030 -0800
-@@ -48,7 +48,7 @@ if test x"$new" != x"$old"; then
- fi
+--- a/scripts/gen_build_files.sh	2010-11-30 09:19:12.450465769 -0800
++++ b/scripts/gen_build_files.sh	2010-11-30 09:19:24.650587598 -0800
+@@ -63,7 +63,7 @@ generate \
+ 	"${s}"
  
  # (Re)generate */Kbuild and */Config.in
 -{ cd -- "$srctree" && find . -type d; } | while read -r d; do

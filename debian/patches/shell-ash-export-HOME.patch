@@ -1,6 +1,6 @@
---- a/shell/ash.c	2010-11-08 15:47:22.313312262 -0800
-+++ b/shell/ash.c	2010-11-08 15:49:21.330773052 -0800
-@@ -1895,7 +1895,7 @@ static const struct {
+--- a/shell/ash.c	2010-11-30 09:15:30.824252634 -0800
++++ b/shell/ash.c	2010-11-30 09:19:20.594547095 -0800
+@@ -1897,7 +1897,7 @@ static const struct {
  	{ VSTRFIXED|VTEXTFIXED|VUNSET, "MAIL"      , changemail      },
  	{ VSTRFIXED|VTEXTFIXED|VUNSET, "MAILPATH"  , changemail      },
  #endif
