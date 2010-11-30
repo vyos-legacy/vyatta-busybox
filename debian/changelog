@@ -1,3 +1,84 @@
+vyatta-busybox (1.19.0-1+vyatta+1) unstable; urgency=low
+
+  [ Lauri Kasanen ]
+  * libbb: remove unused variable
+
+  [ Denys Vlasenko ]
+  * hush: preparatory patch for set -o pipefail support
+  * hush: add support for "set -o pipefail"
+
+  [ Wolfram Sang ]
+  * lineedit: create history files with mode 0600
+
+  [ Mike Frysinger ]
+  * depmod.pl: add recursive sanity check
+  * allow SKIP_STRIP to be set in the env
+  * gen_build_files.sh: rewrite with sed
+
+  [ Denys Vlasenko ]
+  * patch: busyboxify by migrating from toybox to busybox helpers
+  * patch: simplify double list helpers
+  * cmp: with -s, do not report open errors
+  * gen_build_files.sh: restore deleted comment
+  * patch: remove out-of-file build machinery
+
+  [ Mike Shal ]
+  * lineedit: fix tab-completion of filenames with spaces
+
+  [ Mike Frysinger ]
+  * inetd: if argv[0] is not specified, set it to program name
+
+  [ Denys Vlasenko ]
+  * nc: fix SEGV on -v when NC_EXTRA is off
+  * hush: fix improper handling of newline and hash chars in few corner
+    cases
+  * fix misspelling in comment
+  * fixes for bugs discovered by randomconfig builds and tests
+  * date :add a comment about older toolchains
+  * Bump version to 1.18.0
+  * Start 1.19.0 development cycle
+  * build system: fix for dash
+  * gen_build_files.sh: better comment
+  * blkid: add TODO
+  * dhcpd: smaller code: do not look for REQUESTED_IP twice
+  * add a test for patch which we currently fail
+
+  [ Dan Fandrich ]
+  * hush: display useful help text
+  * Support set -o xtrace/noexec alternates for set -x/-n
+
+  [ Denys Vlasenko ]
+  * hush: move G_x_mode define to the more appropriate place
+  * use BB_EXECVP_or_die where appropriate
+  * dhcpd: reply with NAK to clients in INIT-REBOOT state w/o existing
+    lease
+
+  [ Joachim Nilsson ]
+  * ping: add -t TTL option
+
+  [ Denys Vlasenko ]
+  * if only one applet is enabled, make "busybox applet [params]" work
+    as expected
+  * exclude the case of just "busybox" from previous commit
+
+  [ Rob Landley ]
+  * patch: fix "patch at the beginning" testcase failure
+
+  [ Denys Vlasenko ]
+  * ping: set not only IP_TTL, but also IP_MULTICAST_TTL
+  * telnetd: write utmp record with correct pid
+
+  [ Chris Rees ]
+  * build system: do not use GNU-isms in find
+
+  [ Denys Vlasenko ]
+  * su: suppress "warning: unused variable 'user_buf'"
+
+  [ Stephen Hemminger ]
+  * Revert "Telnetd: fix pid in utmp record"
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Tue, 30 Nov 2010 09:02:22 -0800
+
 vyatta-busybox (1.18.0-1+vyatta+5) unstable; urgency=low
 
   * Telnetd: fix pid in utmp record
