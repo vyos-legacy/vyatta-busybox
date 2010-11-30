@@ -2817,29 +2817,6 @@ INSERT
      "\n	-m	Use MD5 encryption instead of DES" \
 	)
 
-#define patch_trivial_usage \
-       "[OPTIONS] [ORIGFILE [PATCHFILE]]"
-#define patch_full_usage "\n\n" \
-	IF_LONG_OPTS( \
-       "	-p,--strip N		Strip N leading components from file names" \
-     "\n	-i,--input DIFF		Read DIFF instead of stdin" \
-     "\n	-R,--reverse		Reverse patch" \
-     "\n	-N,--forward		Ignore already applied patches" \
-     "\n	--dry-run		Don't actually change files" \
-     "\n	-E,--remove-empty-files	Remove output files if they become empty" \
-	) \
-	IF_NOT_LONG_OPTS( \
-       "	-p N	Strip N leading components from file names" \
-     "\n	-i DIFF	Read DIFF instead of stdin" \
-     "\n	-R	Reverse patch" \
-     "\n	-N	Ignore already applied patches" \
-     "\n	-E	Remove output files if they become empty" \
-	)
-
-#define patch_example_usage \
-       "$ patch -p1 < example.diff\n" \
-       "$ patch -p0 -i example.diff"
-
 #define pgrep_trivial_usage \
        "[-flnovx] [-s SID|-P PPID|PATTERN]"
 #define pgrep_full_usage "\n\n" \
@@ -2881,61 +2858,6 @@ INSERT
        "$ pidof /bin/sh\n20351 5973 5950\n") \
 	IF_FEATURE_PIDOF_OMIT( \
        "$ pidof /bin/sh -o %PPID\n20351 5950")
-
-#if !ENABLE_FEATURE_FANCY_PING
-#define ping_trivial_usage \
-       "host"
-#define ping_full_usage "\n\n" \
-       "Send ICMP ECHO_REQUEST packets to network hosts"
-#define ping6_trivial_usage \
-       "host"
-#define ping6_full_usage "\n\n" \
-       "Send ICMP ECHO_REQUEST packets to network hosts"
-#else
-#define ping_trivial_usage \
-       "[OPTIONS] HOST"
-#define ping_full_usage "\n\n" \
-       "Send ICMP ECHO_REQUEST packets to network hosts\n" \
-     "\nOptions:" \
-     "\n	-4,-6		Force IP or IPv6 name resolution" \
-     "\n	-c CNT		Send only CNT pings" \
-     "\n	-s SIZE		Send SIZE data bytes in packets (default:56)" \
-     "\n	-I IFACE/IP	Use interface or IP address as source" \
-     "\n	-W SEC		Seconds to wait for the first response (default:10)" \
-     "\n			(after all -c CNT packets are sent)" \
-     "\n	-w SEC		Seconds until ping exits (default:infinite)" \
-     "\n			(can exit earlier with -c CNT)" \
-     "\n	-q		Quiet, only displays output at start" \
-     "\n			and when finished" \
-
-#define ping6_trivial_usage \
-       "[OPTIONS] HOST"
-#define ping6_full_usage "\n\n" \
-       "Send ICMP ECHO_REQUEST packets to network hosts\n" \
-     "\nOptions:" \
-     "\n	-c CNT		Send only CNT pings" \
-     "\n	-s SIZE		Send SIZE data bytes in packets (default:56)" \
-     "\n	-I IFACE/IP	Use interface or IP address as source" \
-     "\n	-q		Quiet, only displays output at start" \
-     "\n			and when finished" \
-
-#endif
-#define ping_example_usage \
-       "$ ping localhost\n" \
-       "PING slag (127.0.0.1): 56 data bytes\n" \
-       "64 bytes from 127.0.0.1: icmp_seq=0 ttl=255 time=20.1 ms\n" \
-       "\n" \
-       "--- debian ping statistics ---\n" \
-       "1 packets transmitted, 1 packets received, 0% packet loss\n" \
-       "round-trip min/avg/max = 20.1/20.1/20.1 ms\n"
-#define ping6_example_usage \
-       "$ ping6 ip6-localhost\n" \
-       "PING ip6-localhost (::1): 56 data bytes\n" \
-       "64 bytes from ::1: icmp6_seq=0 ttl=64 time=20.1 ms\n" \
-       "\n" \
-       "--- ip6-localhost ping statistics ---\n" \
-       "1 packets transmitted, 1 packets received, 0% packet loss\n" \
-       "round-trip min/avg/max = 20.1/20.1/20.1 ms\n"
 
 #define pipe_progress_trivial_usage NOUSAGE_STR
 #define pipe_progress_full_usage ""
