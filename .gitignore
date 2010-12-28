@@ -1,7 +1,6 @@
 #
 # Kbuild ignores
 #
-.*
 *.o
 *.o.*
 *.a
