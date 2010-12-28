@@ -1,3 +1,9 @@
+vyatta-busybox (1.19.0-1+vyatta+2+mendocino1) unstable; urgency=low
+
+  * UNRELEASED
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Tue, 28 Dec 2010 20:34:27 +0000
+
 vyatta-busybox (1.19.0-1+vyatta+2) unstable; urgency=low
 
   * Update debian patches
