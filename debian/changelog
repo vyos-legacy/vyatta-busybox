@@ -1,3 +1,9 @@
+vyatta-busybox (1.19.0-1+vyatta+3+napa1) unstable; urgency=low
+
+  * new branch
+
+ -- Deepti Kulkarni <deepti@vyatta.com>  Thu, 07 Jul 2011 20:46:41 -0700
+
 vyatta-busybox (1.19.0-1+vyatta+3) unstable; urgency=low
 
   * don't ignore .*
