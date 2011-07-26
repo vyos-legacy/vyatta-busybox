@@ -10,6 +10,9 @@
 /* getopt not needed */
 
 #include "libbb.h"
+#ifdef __linux__
+# include <sys/sysinfo.h>
+#endif
 
 struct globals {
 	unsigned mem_unit;
