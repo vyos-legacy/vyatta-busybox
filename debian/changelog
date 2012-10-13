@@ -1,3 +1,9 @@
+vyatta-busybox (1.19.0-1+vyatta+6) unstable; urgency=low
+
+  * new branch
+
+ -- John Southworth <john.southworth@vyatta.com>  Fri, 12 Oct 2012 19:46:30 -0700
+
 vyatta-busybox (1.19.0-1+vyatta+5) unstable; urgency=low
 
   * new branch
