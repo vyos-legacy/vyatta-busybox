@@ -7,6 +7,7 @@
 *.s
 Kbuild
 Config.in
+.pc
 
 #
 # Never ignore these
