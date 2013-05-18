@@ -2,7 +2,7 @@ Source: vyatta-busybox
 Priority: optional
 Section: utils
 Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
-Build-Depends: debhelper (>> 7), lsb-release, quilt
+Build-Depends: debhelper (>> 7), lsb-release, quilt, libpam0g-dev
 Standards-Version: 3.7.3
 
 Package: vyatta-busybox
