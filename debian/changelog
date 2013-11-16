@@ -1,3 +1,9 @@
+vyatta-busybox (1.19.0-1+vyatta+6+hydrogen1) unstable; urgency=low
+
+  * New branch
+
+ -- Daniil Baturin <daniil@baturin.org>  Sun, 17 Nov 2013 00:04:35 +0100
+
 vyatta-busybox (1.19.0-1+vyatta+6+daisy1) unstable; urgency=low
 
   * create daisy branch
