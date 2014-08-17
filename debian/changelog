@@ -1,3 +1,9 @@
+vyatta-busybox (1.19.0-1+vyos1+helium2) unstable; urgency=low
+
+  * Update maintainer address.
+
+ -- Daniil Baturin <daniil@baturin.org>  Sun, 17 Aug 2014 23:57:34 +0200
+
 vyatta-busybox (1.19.0-1+vyos1+helium1) unstable; urgency=low
 
   * New branch
