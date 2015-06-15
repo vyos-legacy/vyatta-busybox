@@ -1,3 +1,9 @@
+vyatta-busybox (1.19.0-1+vyos2+lithium2) unstable; urgency=low
+
+  * vyatta-busybox: update dh_gencontrol with new development build flag
+
+ -- Alex Harpin <development@landsofshadow.co.uk>  Mon, 15 Jun 2015 07:40:20 +0100
+ 
 vyatta-busybox (1.19.0-1+vyos2+lithium1) unstable; urgency=low
 
   * New branch
