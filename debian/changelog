@@ -1,3 +1,16 @@
+vyatta-busybox (1.19.0-1+vyos2+current1) unstable; urgency=medium
+
+  [ Denys Vlasenko ]
+  * libbb.h: do not use homegrown struct sysinfo.
+  * *: work around sysinfo.h versus linux/*.h problems
+
+  [ UnicronNL ]
+  * Make it compile in debian jessie
+
+  [ Kim Hagen ]
+
+ -- Kim Hagen <kim.sidney@gmail.com>  Sun, 24 Jan 2016 14:53:54 -0500
+
 vyatta-busybox (1.19.0-1+vyos2+lithium2) unstable; urgency=low
 
   * vyatta-busybox: update dh_gencontrol with new development build flag
